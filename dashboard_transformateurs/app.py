@@ -1,6 +1,24 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from pathlib import Path
+import pandas as pd
+import streamlit as st
+
+# Obtenir le dossier parent dans lequel se trouve app.py
+BASE_DIR = Path(__file__).resolve().parent
+
+@st.cache_data
+def load_data():
+    # Définir le chemin absolu vers le fichier Excel
+    file_path = BASE_DIR / 'transfo_dataset.xlsx'
+    
+    # Charger les données
+    df = pd.read_excel(file_path)
+    df.columns = df.columns.str.strip()
+    return df
+
+df = load_data()
 
 # Configuration de la page
 st.set_page_config(

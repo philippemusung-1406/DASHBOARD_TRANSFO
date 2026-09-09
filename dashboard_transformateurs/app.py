@@ -142,16 +142,10 @@ else:
     st.stop()
 
 # ==========================================
-# 3. FILTRES DYNAMIQUES & BARRE DE RECHERCHE
+# 3. FILTRES DANS LA SIDEBAR
 # ==========================================
 st.sidebar.markdown("---")
-st.sidebar.subheader("🔍 Recherche & Filtres d'Analyse")
-
-# Barre de recherche textuelle globale
-search_query = st.sidebar.text_input(
-    "🔎 Barre de recherche globale",
-    placeholder="Tapez un mot-clé (ex: TFO_01, fuite, sale, rouge...)",
-)
+st.sidebar.subheader("⚙️ Filtres Globaux")
 
 min_date = df["date"].min().date()
 max_date = df["date"].max().date()
@@ -165,20 +159,38 @@ date_range = st.sidebar.date_input(
 transfo_list = ["Tous les équipements"] + sorted(list(df["transfo_id"].unique()))
 selected_transfo = st.sidebar.selectbox("Équipement ciblable", transfo_list)
 
+# ==========================================
+# 4. EN-TÊTE & BARRE DE RECHERCHE A DROITE
+# ==========================================
+col_header, col_search = st.columns([2.5, 1])
+
+with col_header:
+    st.title("⚡ Dashboard & Prévisions MT")
+    st.caption(
+        "Surveillance opérationnelle et prévision des risques de fuite aux buchings (M+1 / M+2)."
+    )
+
+with col_search:
+    st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+    search_query = st.text_input(
+        "🔍 Recherche rapide",
+        placeholder="Mots-clés (ex: TFO_01, fuite, sale)...",
+        key="quick_search_right",
+    )
+
+# Application des filtres
 filtered_df = df.copy()
 
-# Application du filtre par date
 if len(date_range) == 2:
     filtered_df = filtered_df[
         (filtered_df["date"].dt.date >= date_range[0])
         & (filtered_df["date"].dt.date <= date_range[1])
     ]
 
-# Application du filtre par équipement
 if selected_transfo != "Tous les équipements":
     filtered_df = filtered_df[filtered_df["transfo_id"] == selected_transfo]
 
-# Application de la recherche globale textuelle
+# Filtre textuel issu de la barre de recherche rapide (à droite)
 if search_query:
     q = search_query.lower()
     match_mask = filtered_df.astype(str).apply(
@@ -187,13 +199,8 @@ if search_query:
     filtered_df = filtered_df[match_mask]
 
 # ==========================================
-# 4. EN-TÊTE & KPIs GLOBAUX
+# 5. KPIS GLOBAUX
 # ==========================================
-st.title("⚡ Dashboard & Prévisions Prédictives des Transformateurs MT")
-st.markdown(
-    "Surveillance opérationnelle, analyse de contingence et **prévision des risques de fuites aux traversées à 1 et 2 mois**."
-)
-
 total_inspections = len(filtered_df)
 anomalies_count = len(filtered_df[filtered_df["critique"] == True])
 fuites_buchings = len(filtered_df[filtered_df["buchings"] == "fuite"])
@@ -244,7 +251,7 @@ with k4:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ==========================================
-# 5. ONGLETS D'ANALYSE
+# 6. ONGLETS D'ANALYSE
 # ==========================================
 tab_overview, tab_contingency, tab_evolution, tab_predictions, tab_data = (
     st.tabs(
@@ -279,7 +286,7 @@ with tab_overview:
             )
             st.plotly_chart(fig_temp, use_container_width=True)
         else:
-            st.info("Aucune donnée disponible.")
+            st.info("Aucune donnée disponible pour cette recherche.")
 
     with col_b:
         st.subheader("💧 Répartition de l'État du Niveau d'Huile")
@@ -297,15 +304,12 @@ with tab_overview:
             )
             st.plotly_chart(fig_huile, use_container_width=True)
         else:
-            st.info("Aucune donnée disponible.")
+            st.info("Aucune donnée disponible pour cette recherche.")
 
-# --- TAB 2 : TABLEAUX DE CONTINGENCE STYLISÉS & ROBUSTES ---
+# --- TAB 2 : CONTINGENCE & CROISEMENTS ---
 with tab_contingency:
     st.subheader(
         "🧮 Tableau de Contingence & Profils Lignes (Aspect Général vs Buchings)"
-    )
-    st.markdown(
-        "Analyse de dépendance entre la propreté externe (Aspect Général) et la présence de fuites sur les traversées (Buchings)."
     )
 
     if not filtered_df.empty:
@@ -376,7 +380,7 @@ with tab_contingency:
     else:
         st.warning("Aucune donnée correspondant à votre recherche.")
 
-# --- TAB 3 : ÉVOLUTION SPÉCIFIQUE DU SILICAGEL ET NIVEAU D'HUILE ---
+# --- TAB 3 : ÉVOLUTION TEMPORELLE ---
 with tab_evolution:
     st.subheader("📈 Suivi Chronologique par Transformateur")
 
@@ -451,14 +455,13 @@ with tab_evolution:
         f"{df_single['silica_diff'].abs().max():.1f} %",
     )
 
-# --- TAB 4 : PRÉDICTIONS RÉELLES À 1 & 2 MOIS (TOUS LES TRANSFORMATEURS) ---
+# --- TAB 4 : PRÉDICTIONS RÉELLES (IA) ---
 with tab_predictions:
     st.subheader("🔮 Prévision des Risques de Fuite des Buchings (M+1 & M+2)")
     st.markdown(
-        "Ce modèle entraine une **Régression Logistique** sur l'historique complet pour estimer la probabilité que chaque transformateur développe une fuite aux traversées (Buchings) dans **1 mois** et **2 mois**."
+        "Modèle IA entraîné sur l'ensemble de l'historique pour estimer la probabilité de fuite aux Buchings à M+1 et M+2."
     )
 
-    # Préparation du modèle de Machine Learning
     X_features = [
         "puissance(kva)",
         "tension_pri(v)",
@@ -474,7 +477,6 @@ with tab_predictions:
     model = LogisticRegression(max_iter=1000)
     model.fit(X_encoded, y_train)
 
-    # Récupération du dernier état connu de CHAQUE transformateur
     latest_df = (
         df.sort_values("date").groupby("transfo_id").last().reset_index()
     )
@@ -484,7 +486,6 @@ with tab_predictions:
     for _, row in latest_df.iterrows():
         t_id = row["transfo_id"]
 
-        # État M+1 (Hypothèse de dégradation naturelle : légère hausse temp, baisse silicagel)
         feat_m1 = {
             "puissance(kva)": row["puissance(kva)"],
             "tension_pri(v)": row["tension_pri(v)"],
@@ -494,7 +495,6 @@ with tab_predictions:
             "niveau_huile(°c)": row["niveau_huile(°c)"],
         }
 
-        # État M+2 (Poursuite de dégradation)
         feat_m2 = {
             "puissance(kva)": row["puissance(kva)"],
             "tension_pri(v)": row["tension_pri(v)"],
@@ -519,7 +519,6 @@ with tab_predictions:
         p_fuite_m1 = model.predict_proba(enc_m1)[0][1] * 100
         p_fuite_m2 = model.predict_proba(enc_m2)[0][1] * 100
 
-        # Classification du niveau de risque M+2
         if p_fuite_m2 >= 50:
             risk_level = "🔴 Critique"
         elif p_fuite_m2 >= 25:
@@ -542,8 +541,7 @@ with tab_predictions:
         "Prob. Fuite M+2 (%)", ascending=False
     )
 
-    # Affichage du Tableau Prédictif
-    st.markdown("#### 📋 Tableau de Prévision des Risques par Transformateur")
+    st.markdown("#### 📋 Tableau de Prévision par Transformateur")
     st.dataframe(df_forecast, use_container_width=True)
 
     st.markdown("---")
@@ -554,7 +552,7 @@ with tab_predictions:
         x="Transformateur",
         y=["Prob. Fuite M+1 (%)", "Prob. Fuite M+2 (%)"],
         barmode="group",
-        title="Évolution de la probabilité prédictive de fuite des traversées",
+        title="Évolution prédictive des risques de fuite aux traversées",
         template="plotly_dark",
         color_discrete_sequence=["#F59E0B", "#EF4444"],
     )

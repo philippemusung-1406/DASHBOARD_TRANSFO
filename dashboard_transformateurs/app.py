@@ -5,7 +5,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import OneHotEncoder
 import streamlit as st
 
 warnings.filterwarnings("ignore")
@@ -285,7 +284,7 @@ with tab_overview:
         )
         st.plotly_chart(fig_huile, use_container_width=True)
 
-# --- TAB 2 : TABLEAUX DE CONTINGENCE STYLISÉS ---
+# --- TAB 2 : TABLEAUX DE CONTINGENCE STYLISÉS & ROBUSTES ---
 with tab_contingency:
     st.subheader(
         "🧮 Tableau de Contingence & Profils Lignes (Aspect Général vs Buchings)"
@@ -294,59 +293,76 @@ with tab_contingency:
         "Analyse de dépendance entre la propreté externe (Aspect Général) et la présence de fuites sur les traversées (Buchings)."
     )
 
-    # Tableau des fréquences brutes
-    ct_raw = pd.crosstab(
-        filtered_df["aspet _gen"],
-        filtered_df["buchings"],
-        margins=True,
-        margins_name="Total",
-    )
-
-    # Tableau des profils lignes (%)
-    ct_prop = (
-        pd.crosstab(
+    if not filtered_df.empty:
+        # Tableau des fréquences brutes
+        ct_raw = pd.crosstab(
             filtered_df["aspet _gen"],
             filtered_df["buchings"],
-            normalize="index",
-        )
-        * 100
-    )
-
-    col_ct1, col_ct2 = st.columns(2)
-
-    with col_ct1:
-        st.markdown("#### 🔢 Fréquences Absolues (Nombre d'Inspections)")
-        st.dataframe(
-            ct_raw.style.background_gradient(cmap="Blues").format("{:d}"),
-            use_container_width=True,
+            margins=True,
+            margins_name="Total",
         )
 
-    with col_ct2:
-        st.markdown("#### 📊 Profil Ligne (% de fuites par état d'aspect)")
-        st.dataframe(
-            ct_prop.style.background_gradient(cmap="OrRd").format("{:.2f} %"),
-            use_container_width=True,
+        # Tableau des profils lignes (%)
+        ct_prop = (
+            pd.crosstab(
+                filtered_df["aspet _gen"],
+                filtered_df["buchings"],
+                normalize="index",
+            )
+            * 100
         )
 
-    st.markdown("---")
-    st.subheader("📉 Représentation Graphique de la Contingence")
-    fig_ct = px.bar(
-        ct_prop.reset_index(),
-        x="aspet _gen",
-        y=["fuite", "propre"],
-        title="Proportion des états de Buchings selon l'Aspect Général",
-        labels={
-            "aspet _gen": "Aspect Général",
-            "value": "Proportion (%)",
-            "variable": "État Buchings",
-        },
-        template="plotly_dark",
-        color_discrete_map={"propre": "#10B981", "fuite": "#EF4444"},
-    )
-    fig_ct.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
-    )
-    st.plotly_chart(fig_ct, use_container_width=True)
+        col_ct1, col_ct2 = st.columns(2)
+
+        with col_ct1:
+            st.markdown("#### 🔢 Fréquences Absolues (Nombre d'Inspections)")
+            st.dataframe(
+                ct_raw.style.format("{:d}"),
+                use_container_width=True,
+            )
+
+        with col_ct2:
+            st.markdown("#### 📊 Profil Ligne (% de fuites par état d'aspect)")
+            st.dataframe(
+                ct_prop.style.format("{:.2f} %"),
+                use_container_width=True,
+            )
+
+        st.markdown("---")
+        st.subheader("📉 Représentation Graphique de la Contingence")
+
+        # Conversion robuste en format Long pour Plotly (Evite le crash ValueError)
+        ct_prop_clean = ct_prop.reset_index().rename_axis(None, axis=1)
+        value_vars = [c for c in ct_prop_clean.columns if c != "aspet _gen"]
+        df_melted = pd.melt(
+            ct_prop_clean,
+            id_vars=["aspet _gen"],
+            value_vars=value_vars,
+            var_name="Etat_Buchings",
+            value_name="Proportion",
+        )
+
+        fig_ct = px.bar(
+            df_melted,
+            x="aspet _gen",
+            y="Proportion",
+            color="Etat_Buchings",
+            title="Proportion des états de Buchings selon l'Aspect Général (%)",
+            labels={
+                "aspet _gen": "Aspect Général",
+                "Proportion": "Proportion (%)",
+                "Etat_Buchings": "État Buchings",
+            },
+            barmode="group",
+            template="plotly_dark",
+            color_discrete_map={"propre": "#10B981", "fuite": "#EF4444"},
+        )
+        fig_ct.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_ct, use_container_width=True)
+    else:
+        st.warning("Aucune donnée disponible pour cette sélection.")
 
 # --- TAB 3 : ÉVOLUTION SPÉCIFIQUE DU SILICAGEL ET NIVEAU D'HUILE ---
 with tab_evolution:
@@ -489,21 +505,27 @@ with tab_reliability:
 
     p1, p2 = st.columns(2)
     with p1:
-        st.markdown(f"""
+        st.markdown(
+            f"""
             <div class="metric-card {'alert' if prob_fuite > 40 else 'success'}">
                 <div class="metric-title">Probabilité de Fuite (Buchings)</div>
                 <div class="metric-value">{prob_fuite:.1f} %</div>
                 <div class="metric-sub">Résultat du modèle prédictif</div>
             </div>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
     with p2:
-        st.markdown(f"""
+        st.markdown(
+            f"""
             <div class="metric-card success">
                 <div class="metric-title">Probabilité d'État Propre</div>
                 <div class="metric-value">{prob_propre:.1f} %</div>
                 <div class="metric-sub">Résultat du modèle prédictif</div>
             </div>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
 
     st.markdown("---")
     st.subheader("⏳ Analyse de Survie & Fiabilité (Indicateurs MTTF & MTTR)")
@@ -516,16 +538,8 @@ with tab_reliability:
     )
 
     # MTTF estimé en nombre de cycles d'inspection
-    mttf_buchings = (
-        (total_obs / n_fuites)
-        if n_fuites > 0
-        else total_obs
-    )
-    mttf_niveau = (
-        (total_obs / n_niveau_crit)
-        if n_niveau_crit > 0
-        else total_obs
-    )
+    mttf_buchings = (total_obs / n_fuites) if n_fuites > 0 else total_obs
+    mttf_niveau = (total_obs / n_niveau_crit) if n_niveau_crit > 0 else total_obs
 
     col_f1, col_f2, col_f3 = st.columns(3)
     with col_f1:
@@ -543,7 +557,7 @@ with tab_reliability:
     with col_f3:
         st.metric(
             "Taux de Défaillance (λ)",
-            f"{(n_fuites / total_obs):.4f} /cycle",
+            f"{(n_fuites / total_obs):.4f} /cycle" if total_obs > 0 else "0 /cycle",
             help="Proportion de pannes constatées par inspection.",
         )
 

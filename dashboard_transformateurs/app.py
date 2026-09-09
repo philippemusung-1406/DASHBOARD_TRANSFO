@@ -13,7 +13,7 @@ warnings.filterwarnings("ignore")
 # 1. CONFIGURATION DE LA PAGE & THÈME CSS
 # ==========================================
 st.set_page_config(
-    page_title="GMAO - Analytics & Fiabilité Transfo MT",
+    page_title="GMAO - Analytics & Previsions Transfo MT",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -22,18 +22,15 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Masquer le menu d'édition Streamlit et le footer */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Arrière-plan global */
     .main {
         background-color: #0E1117;
         font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
     
-    /* Style des cartes KPI */
     .metric-card {
         background: linear-gradient(135deg, #1E2640 0%, #111827 100%);
         border-radius: 12px;
@@ -108,13 +105,9 @@ def load_data(source):
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"])
 
-    # Tri pour calculs de séries temporelles
     df = df.sort_values(["transfo_id", "date"]).reset_index(drop=True)
-
-    # Calcul de la variation du silicagel
     df["silica_diff"] = df.groupby("transfo_id")["silicagel(%)"].diff().fillna(0)
 
-    # Indicateur global de criticité
     df["critique"] = False
     mask_alert = (
         (df["temp_huile(°c)"] >= 50)
@@ -127,12 +120,11 @@ def load_data(source):
     return df
 
 
-# Entête Sidebar
 st.sidebar.image(
     "https://img.icons8.com/fluent/96/lightning-bolt.png", width=50
 )
 st.sidebar.title("GMAO Transfo MT")
-st.sidebar.caption("Plateforme d'Analyse & Prédiction")
+st.sidebar.caption("Plateforme d'Analyse & Prédictions")
 
 dataset_file = find_dataset()
 uploaded_file = st.sidebar.file_uploader(
@@ -150,39 +142,56 @@ else:
     st.stop()
 
 # ==========================================
-# 3. FILTRES DYNAMIQUES
+# 3. FILTRES DYNAMIQUES & BARRE DE RECHERCHE
 # ==========================================
 st.sidebar.markdown("---")
-st.sidebar.subheader("🔍 Filtres d'Analyse")
+st.sidebar.subheader("🔍 Recherche & Filtres d'Analyse")
+
+# Barre de recherche textuelle globale
+search_query = st.sidebar.text_input(
+    "🔎 Barre de recherche globale",
+    placeholder="Tapez un mot-clé (ex: TFO_01, fuite, sale, rouge...)",
+)
 
 min_date = df["date"].min().date()
 max_date = df["date"].max().date()
 date_range = st.sidebar.date_input(
-    "Période",
+    "Période d'inspection",
     value=(min_date, max_date),
     min_value=min_date,
     max_value=max_date,
 )
 
 transfo_list = ["Tous les équipements"] + sorted(list(df["transfo_id"].unique()))
-selected_transfo = st.sidebar.selectbox("Équipement", transfo_list)
+selected_transfo = st.sidebar.selectbox("Équipement ciblable", transfo_list)
 
 filtered_df = df.copy()
+
+# Application du filtre par date
 if len(date_range) == 2:
     filtered_df = filtered_df[
         (filtered_df["date"].dt.date >= date_range[0])
         & (filtered_df["date"].dt.date <= date_range[1])
     ]
 
+# Application du filtre par équipement
 if selected_transfo != "Tous les équipements":
     filtered_df = filtered_df[filtered_df["transfo_id"] == selected_transfo]
+
+# Application de la recherche globale textuelle
+if search_query:
+    q = search_query.lower()
+    match_mask = filtered_df.astype(str).apply(
+        lambda row: row.str.lower().str.contains(q).any(), axis=1
+    )
+    filtered_df = filtered_df[match_mask]
 
 # ==========================================
 # 4. EN-TÊTE & KPIs GLOBAUX
 # ==========================================
-st.title("⚡ Dashboard Avancé & Analyse de Fiabilité Transfo MT")
+st.title("⚡ Dashboard & Prévisions Prédictives des Transformateurs MT")
 st.markdown(
-    "Surveillance, Analyse Contingente, Modélisation Prédictive des Fuites et Calculs de Fiabilité (MTTF/MTTR)."
+    "Surveillance opérationnelle, analyse de contingence et **prévision des risques de fuites aux traversées à 1 et 2 mois**."
 )
 
 total_inspections = len(filtered_df)
@@ -206,7 +215,7 @@ with k2:
     status_c = "alert" if anomalies_count > 0 else "success"
     st.markdown(
         f"""<div class="metric-card {status_c}">
-            <div class="metric-title">Anomalies Globales</div>
+            <div class="metric-title">Anomalies Relevées</div>
             <div class="metric-value">{anomalies_count}</div>
             <div class="metric-sub">Équipements en alerte</div>
         </div>""",
@@ -218,7 +227,7 @@ with k3:
         f"""<div class="metric-card {b_class}">
             <div class="metric-title">Fuites Buchings</div>
             <div class="metric-value">{fuites_buchings}</div>
-            <div class="metric-sub">Traversées défectueuses</div>
+            <div class="metric-sub">Traversées actuellement défectueuses</div>
         </div>""",
         unsafe_allow_html=True,
     )
@@ -237,13 +246,13 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ==========================================
 # 5. ONGLETS D'ANALYSE
 # ==========================================
-tab_overview, tab_contingency, tab_evolution, tab_reliability, tab_data = (
+tab_overview, tab_contingency, tab_evolution, tab_predictions, tab_data = (
     st.tabs(
         [
             "📊 Vue d'ensemble",
             "🧮 Contingence & Croisements",
             "📈 Évolution Temporelle Transfo",
-            "⏳ Fiabilité, MTTF/MTTR & IA",
+            "🔮 Prédictions à 1 & 2 Mois (IA)",
             "📋 Registre des Données",
         ]
     )
@@ -254,35 +263,41 @@ with tab_overview:
     col_a, col_b = st.columns(2)
     with col_a:
         st.subheader("🌡️ Température d'Huile par Transformateur (°C)")
-        fig_temp = px.box(
-            filtered_df,
-            x="transfo_id",
-            y="temp_huile(°c)",
-            color="aspet _gen",
-            template="plotly_dark",
-            color_discrete_map={"propre": "#3B82F6", "sale": "#EF4444"},
-        )
-        fig_temp.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            xaxis_tickangle=-45,
-        )
-        st.plotly_chart(fig_temp, use_container_width=True)
+        if not filtered_df.empty:
+            fig_temp = px.box(
+                filtered_df,
+                x="transfo_id",
+                y="temp_huile(°c)",
+                color="aspet _gen",
+                template="plotly_dark",
+                color_discrete_map={"propre": "#3B82F6", "sale": "#EF4444"},
+            )
+            fig_temp.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                xaxis_tickangle=-45,
+            )
+            st.plotly_chart(fig_temp, use_container_width=True)
+        else:
+            st.info("Aucune donnée disponible.")
 
     with col_b:
         st.subheader("💧 Répartition de l'État du Niveau d'Huile")
-        fig_huile = px.histogram(
-            filtered_df,
-            x="niveau_huile(°c)",
-            color="buchings",
-            barmode="group",
-            template="plotly_dark",
-            color_discrete_map={"propre": "#10B981", "fuite": "#EF4444"},
-        )
-        fig_huile.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
-        )
-        st.plotly_chart(fig_huile, use_container_width=True)
+        if not filtered_df.empty:
+            fig_huile = px.histogram(
+                filtered_df,
+                x="niveau_huile(°c)",
+                color="buchings",
+                barmode="group",
+                template="plotly_dark",
+                color_discrete_map={"propre": "#10B981", "fuite": "#EF4444"},
+            )
+            fig_huile.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_huile, use_container_width=True)
+        else:
+            st.info("Aucune donnée disponible.")
 
 # --- TAB 2 : TABLEAUX DE CONTINGENCE STYLISÉS & ROBUSTES ---
 with tab_contingency:
@@ -294,7 +309,6 @@ with tab_contingency:
     )
 
     if not filtered_df.empty:
-        # Tableau des fréquences brutes
         ct_raw = pd.crosstab(
             filtered_df["aspet _gen"],
             filtered_df["buchings"],
@@ -302,7 +316,6 @@ with tab_contingency:
             margins_name="Total",
         )
 
-        # Tableau des profils lignes (%)
         ct_prop = (
             pd.crosstab(
                 filtered_df["aspet _gen"],
@@ -331,7 +344,6 @@ with tab_contingency:
         st.markdown("---")
         st.subheader("📉 Représentation Graphique de la Contingence")
 
-        # Conversion robuste en format Long pour Plotly (Evite le crash ValueError)
         ct_prop_clean = ct_prop.reset_index().rename_axis(None, axis=1)
         value_vars = [c for c in ct_prop_clean.columns if c != "aspet _gen"]
         df_melted = pd.melt(
@@ -362,7 +374,7 @@ with tab_contingency:
         )
         st.plotly_chart(fig_ct, use_container_width=True)
     else:
-        st.warning("Aucune donnée disponible pour cette sélection.")
+        st.warning("Aucune donnée correspondant à votre recherche.")
 
 # --- TAB 3 : ÉVOLUTION SPÉCIFIQUE DU SILICAGEL ET NIVEAU D'HUILE ---
 with tab_evolution:
@@ -426,7 +438,6 @@ with tab_evolution:
         )
         st.plotly_chart(fig_oil_ev, use_container_width=True)
 
-    # Analyse des variations du Silicagel
     st.markdown("#### 🔬 Analyse Statistiques des Variations de Silicagel")
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     col_stat1.metric(
@@ -440,156 +451,123 @@ with tab_evolution:
         f"{df_single['silica_diff'].abs().max():.1f} %",
     )
 
-# --- TAB 4 : FIABILITÉ, MTTF/MTTR & IA PRÉDICTIVE ---
-with tab_reliability:
-    st.subheader("🔮 Prédiction Probabiliste de Fuite (Modèle IA)")
+# --- TAB 4 : PRÉDICTIONS RÉELLES À 1 & 2 MOIS (TOUS LES TRANSFORMATEURS) ---
+with tab_predictions:
+    st.subheader("🔮 Prévision des Risques de Fuite des Buchings (M+1 & M+2)")
     st.markdown(
-        "Ce modèle de Machine Learning évalue la probabilité qu'une traversée (Buchings) présente une fuite en fonction des paramètres de fonctionnement."
+        "Ce modèle entraine une **Régression Logistique** sur l'historique complet pour estimer la probabilité que chaque transformateur développe une fuite aux traversées (Buchings) dans **1 mois** et **2 mois**."
     )
 
-    # Entraînement du modèle de régression logistique
-    X = df[
-        [
-            "puissance(kva)",
-            "tension_pri(v)",
-            "temp_huile(°c)",
-            "silicagel(%)",
-            "aspet _gen",
-            "niveau_huile(°c)",
-        ]
+    # Préparation du modèle de Machine Learning
+    X_features = [
+        "puissance(kva)",
+        "tension_pri(v)",
+        "temp_huile(°c)",
+        "silicagel(%)",
+        "aspet _gen",
+        "niveau_huile(°c)",
     ]
-    y = (df["buchings"] == "fuite").astype(int)
+    X_train = df[X_features]
+    y_train = (df["buchings"] == "fuite").astype(int)
 
-    X_encoded = pd.get_dummies(X, drop_first=True)
+    X_encoded = pd.get_dummies(X_train, drop_first=True)
     model = LogisticRegression(max_iter=1000)
-    model.fit(X_encoded, y)
+    model.fit(X_encoded, y_train)
 
-    # Simulateur interactif
-    st.markdown("##### 🎛️ Simuler les Conditions d'un Transformateur")
-    sc1, sc2, sc3, sc4 = st.columns(4)
-    sim_puiss = sc1.selectbox(
-        "Puissance (kVA)", sorted(df["puissance(kva)"].unique())
-    )
-    sim_temp = sc2.slider(
-        "Température Huile (°C)",
-        int(df["temp_huile(°c)"].min()),
-        int(df["temp_huile(°c)"].max()),
-        40,
-    )
-    sim_silica = sc3.slider(
-        "Silicagel (%)",
-        int(df["silicagel(%)"].min()),
-        int(df["silicagel(%)"].max()),
-        80,
-    )
-    sim_aspect = sc4.selectbox(
-        "Aspect Général", sorted(df["aspet _gen"].unique())
+    # Récupération du dernier état connu de CHAQUE transformateur
+    latest_df = (
+        df.sort_values("date").groupby("transfo_id").last().reset_index()
     )
 
-    # Préparation du vecteur de test
-    input_dict = {
-        "puissance(kva)": [sim_puiss],
-        "tension_pri(v)": [15000],
-        "temp_huile(°c)": [sim_temp],
-        "silicagel(%)": [sim_silica],
-        "aspet _gen": [sim_aspect],
-        "niveau_huile(°c)": ["vert"],
-    }
-    input_df = pd.DataFrame(input_dict)
-    input_encoded = pd.get_dummies(input_df, drop_first=True).reindex(
-        columns=X_encoded.columns, fill_value=0
-    )
+    forecast_results = []
 
-    prob_fuite = model.predict_proba(input_encoded)[0][1] * 100
-    prob_propre = 100 - prob_fuite
+    for _, row in latest_df.iterrows():
+        t_id = row["transfo_id"]
 
-    p1, p2 = st.columns(2)
-    with p1:
-        st.markdown(
-            f"""
-            <div class="metric-card {'alert' if prob_fuite > 40 else 'success'}">
-                <div class="metric-title">Probabilité de Fuite (Buchings)</div>
-                <div class="metric-value">{prob_fuite:.1f} %</div>
-                <div class="metric-sub">Résultat du modèle prédictif</div>
-            </div>
-        """,
-            unsafe_allow_html=True,
+        # État M+1 (Hypothèse de dégradation naturelle : légère hausse temp, baisse silicagel)
+        feat_m1 = {
+            "puissance(kva)": row["puissance(kva)"],
+            "tension_pri(v)": row["tension_pri(v)"],
+            "temp_huile(°c)": min(row["temp_huile(°c)"] + 2, 70),
+            "silicagel(%)": max(row["silicagel(%)"] - 5, 20),
+            "aspet _gen": row["aspet _gen"],
+            "niveau_huile(°c)": row["niveau_huile(°c)"],
+        }
+
+        # État M+2 (Poursuite de dégradation)
+        feat_m2 = {
+            "puissance(kva)": row["puissance(kva)"],
+            "tension_pri(v)": row["tension_pri(v)"],
+            "temp_huile(°c)": min(row["temp_huile(°c)"] + 4, 75),
+            "silicagel(%)": max(row["silicagel(%)"] - 10, 10),
+            "aspet _gen": "sale"
+            if row["aspet _gen"] == "sale"
+            else row["aspet _gen"],
+            "niveau_huile(°c)": row["niveau_huile(°c)"],
+        }
+
+        df_m1 = pd.DataFrame([feat_m1])
+        df_m2 = pd.DataFrame([feat_m2])
+
+        enc_m1 = pd.get_dummies(df_m1, drop_first=True).reindex(
+            columns=X_encoded.columns, fill_value=0
         )
-    with p2:
-        st.markdown(
-            f"""
-            <div class="metric-card success">
-                <div class="metric-title">Probabilité d'État Propre</div>
-                <div class="metric-value">{prob_propre:.1f} %</div>
-                <div class="metric-sub">Résultat du modèle prédictif</div>
-            </div>
-        """,
-            unsafe_allow_html=True,
+        enc_m2 = pd.get_dummies(df_m2, drop_first=True).reindex(
+            columns=X_encoded.columns, fill_value=0
         )
+
+        p_fuite_m1 = model.predict_proba(enc_m1)[0][1] * 100
+        p_fuite_m2 = model.predict_proba(enc_m2)[0][1] * 100
+
+        # Classification du niveau de risque M+2
+        if p_fuite_m2 >= 50:
+            risk_level = "🔴 Critique"
+        elif p_fuite_m2 >= 25:
+            risk_level = "🟠 Moyen"
+        else:
+            risk_level = "🟢 Faible"
+
+        forecast_results.append(
+            {
+                "Transformateur": t_id,
+                "Dernier Etat Buchings": row["buchings"],
+                "Aspect Actuel": row["aspet _gen"],
+                "Prob. Fuite M+1 (%)": round(p_fuite_m1, 1),
+                "Prob. Fuite M+2 (%)": round(p_fuite_m2, 1),
+                "Niveau de Risque (M+2)": risk_level,
+            }
+        )
+
+    df_forecast = pd.DataFrame(forecast_results).sort_values(
+        "Prob. Fuite M+2 (%)", ascending=False
+    )
+
+    # Affichage du Tableau Prédictif
+    st.markdown("#### 📋 Tableau de Prévision des Risques par Transformateur")
+    st.dataframe(df_forecast, use_container_width=True)
 
     st.markdown("---")
-    st.subheader("⏳ Analyse de Survie & Fiabilité (Indicateurs MTTF & MTTR)")
+    st.markdown("#### 📊 Comparatif des Probabilités de Fuite à M+1 et M+2")
 
-    # Calculs de fiabilité
-    total_obs = len(filtered_df)
-    n_fuites = len(filtered_df[filtered_df["buchings"] == "fuite"])
-    n_niveau_crit = len(
-        filtered_df[filtered_df["niveau_huile(°c)"] == "rouge"]
-    )
-
-    # MTTF estimé en nombre de cycles d'inspection
-    mttf_buchings = (total_obs / n_fuites) if n_fuites > 0 else total_obs
-    mttf_niveau = (total_obs / n_niveau_crit) if n_niveau_crit > 0 else total_obs
-
-    col_f1, col_f2, col_f3 = st.columns(3)
-    with col_f1:
-        st.metric(
-            "MTTF Estimé (Fuites Buchings)",
-            f"{mttf_buchings:.1f} cycles",
-            help="Temps moyen avant l'apparition d'une fuite aux traversées.",
-        )
-    with col_f2:
-        st.metric(
-            "MTTF Estimé (Niveau Huile Rouge)",
-            f"{mttf_niveau:.1f} cycles",
-            help="Temps moyen avant baisse critique du niveau d'huile.",
-        )
-    with col_f3:
-        st.metric(
-            "Taux de Défaillance (λ)",
-            f"{(n_fuites / total_obs):.4f} /cycle" if total_obs > 0 else "0 /cycle",
-            help="Proportion de pannes constatées par inspection.",
-        )
-
-    # Courbe de Survie Empirique (Kaplan-Meier simplifié)
-    st.markdown("##### 📉 Courbe de Fiabilité Estimée $R(t)$")
-    t_steps = np.arange(1, 20)
-    lambda_param = n_fuites / total_obs if total_obs > 0 else 0.05
-    reliability_curve = np.exp(-lambda_param * t_steps)
-
-    fig_surv = go.Figure()
-    fig_surv.add_trace(
-        go.Scatter(
-            x=t_steps,
-            y=reliability_curve * 100,
-            mode="lines+markers",
-            name="Fiabilité R(t)",
-            line=dict(color="#10B981", width=3),
-        )
-    )
-    fig_surv.update_layout(
-        title="Probabilité de maintien en bon état en fonction des cycles d'inspection",
-        xaxis_title="Nombre d'inspections successives",
-        yaxis_title="Fiabilité (%)",
+    fig_prev = px.bar(
+        df_forecast,
+        x="Transformateur",
+        y=["Prob. Fuite M+1 (%)", "Prob. Fuite M+2 (%)"],
+        barmode="group",
+        title="Évolution de la probabilité prédictive de fuite des traversées",
         template="plotly_dark",
+        color_discrete_sequence=["#F59E0B", "#EF4444"],
+    )
+    fig_prev.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
+        xaxis_tickangle=-45,
     )
-    st.plotly_chart(fig_surv, use_container_width=True)
+    st.plotly_chart(fig_prev, use_container_width=True)
 
 # --- TAB 5 : REGISTRE DE DONNÉES ---
 with tab_data:
-    st.subheader("📋 Vue Intégrale des Inspections")
+    st.subheader("📋 Vue Intégrale des Inspections (Filtrée)")
     st.dataframe(filtered_df, use_container_width=True)
 
     csv_data = filtered_df.to_csv(index=False).encode("utf-8")

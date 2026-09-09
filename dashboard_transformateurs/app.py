@@ -106,7 +106,32 @@ def load_data(source):
         df["date"] = pd.to_datetime(df["date"])
 
     df = df.sort_values(["transfo_id", "date"]).reset_index(drop=True)
-    df["silica_diff"] = df.groupby("transfo_id")["silicagel(%)"].diff().fillna(0)
+
+    # Calcul des variations inter-inspections
+    df["var_silicagel(%)"] = df.groupby("transfo_id")["silicagel(%)"].diff().fillna(0)
+    df["var_temp_huile(°c)"] = df.groupby("transfo_id")["temp_huile(°c)"].diff().fillna(0)
+    
+    # Suivi des changements d'état qualitatifs (ex: passage de propre à sale / fuite)
+    df["prev_aspet_gen"] = df.groupby("transfo_id")["aspet _gen"].shift(1)
+    df["var_aspet_gen"] = np.where(
+        df["prev_aspet_gen"].isna(), 
+        "Initial", 
+        np.where(df["aspet _gen"] == df["prev_aspet_gen"], "Inchangé", df["prev_aspet_gen"] + " ➔ " + df["aspet _gen"])
+    )
+
+    df["prev_buchings"] = df.groupby("transfo_id")["buchings"].shift(1)
+    df["var_buchings"] = np.where(
+        df["prev_buchings"].isna(), 
+        "Initial", 
+        np.where(df["buchings"] == df["prev_buchings"], "Inchangé", df["prev_buchings"] + " ➔ " + df["buchings"])
+    )
+
+    df["prev_niveau_huile"] = df.groupby("transfo_id")["niveau_huile(°c)"].shift(1)
+    df["var_niveau_huile"] = np.where(
+        df["prev_niveau_huile"].isna(), 
+        "Initial", 
+        np.where(df["niveau_huile(°c)"] == df["prev_niveau_huile"], "Inchangé", df["prev_niveau_huile"] + " ➔ " + df["niveau_huile(°c)"])
+    )
 
     df["critique"] = False
     mask_alert = (
@@ -120,63 +145,45 @@ def load_data(source):
     return df
 
 
-st.sidebar.image(
-    "https://img.icons8.com/fluent/96/lightning-bolt.png", width=50
-)
+st.sidebar.image("https://img.icons8.com/fluent/96/lightning-bolt.png", width=50)
 st.sidebar.title("GMAO Transfo MT")
 st.sidebar.caption("Plateforme d'Analyse & Prédictions")
 
 dataset_file = find_dataset()
-uploaded_file = st.sidebar.file_uploader(
-    "🔄 Importer Dataset Excel", type=["xlsx", "xls"]
-)
+uploaded_file = st.sidebar.file_uploader("🔄 Importer Dataset Excel", type=["xlsx", "xls"])
 
 if uploaded_file:
     df = load_data(uploaded_file)
 elif dataset_file:
     df = load_data(dataset_file)
 else:
-    st.error(
-        "⚠️ Base de données introuvable. Veuillez téléverser le fichier Excel."
-    )
+    st.error("⚠️ Base de données introuvable. Veuillez téléverser le fichier Excel.")
     st.stop()
 
 # ==========================================
-# 3. FILTRES DANS LA SIDEBAR
+# 3. BARRE DE RECHERCHE & SELECTION A DROITE
 # ==========================================
-st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ Filtres Globaux")
+col_title, col_search_box = st.columns([1.5, 1.5])
 
-min_date = df["date"].min().date()
-max_date = df["date"].max().date()
-date_range = st.sidebar.date_input(
-    "Période d'inspection",
-    value=(min_date, max_date),
-    min_value=min_date,
-    max_value=max_date,
-)
-
-transfo_list = ["Tous les équipements"] + sorted(list(df["transfo_id"].unique()))
-selected_transfo = st.sidebar.selectbox("Équipement ciblable", transfo_list)
-
-# ==========================================
-# 4. EN-TÊTE & BARRE DE RECHERCHE A DROITE
-# ==========================================
-col_header, col_search = st.columns([2.5, 1])
-
-with col_header:
+with col_title:
     st.title("⚡ Dashboard & Prévisions MT")
-    st.caption(
-        "Surveillance opérationnelle et prévision des risques de fuite aux buchings (M+1 / M+2)."
-    )
+    st.caption("Surveillance opérationnelle et analyse détaillée des variations.")
 
-with col_search:
-    st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
-    search_query = st.text_input(
-        "🔍 Recherche rapide",
-        placeholder="Mots-clés (ex: TFO_01, fuite, sale)...",
-        key="quick_search_right",
-    )
+with col_search_box:
+    st.markdown("### 🔍 Recherche Rapide d'Équipement")
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        transfo_list = ["Tous les équipements"] + sorted(list(df["transfo_id"].unique()))
+        selected_transfo = st.selectbox("Équipement ciblable", transfo_list)
+    with sc2:
+        min_date = df["date"].min().date()
+        max_date = df["date"].max().date()
+        date_range = st.date_input(
+            "Période d'inspection",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+        )
 
 # Application des filtres
 filtered_df = df.copy()
@@ -190,13 +197,42 @@ if len(date_range) == 2:
 if selected_transfo != "Tous les équipements":
     filtered_df = filtered_df[filtered_df["transfo_id"] == selected_transfo]
 
-# Filtre textuel issu de la barre de recherche rapide (à droite)
-if search_query:
-    q = search_query.lower()
-    match_mask = filtered_df.astype(str).apply(
-        lambda row: row.str.lower().str.contains(q).any(), axis=1
-    )
-    filtered_df = filtered_df[match_mask]
+# ==========================================
+# 4. TABLEAU DE SYNTHÈSE DES VARIATIONS
+# ==========================================
+if selected_transfo != "Tous les équipements":
+    st.markdown(f"### 📋 Rapport Synthétique d'Aspects & Variations : **{selected_transfo}**")
+    
+    disp_cols = [
+        "date", "transfo_id", 
+        "aspet _gen", "var_aspet_gen",
+        "silicagel(%)", "var_silicagel(%)",
+        "buchings", "var_buchings",
+        "niveau_huile(°c)", "var_niveau_huile",
+        "temp_huile(°c)", "var_temp_huile(°c)"
+    ]
+    
+    df_display = filtered_df[disp_cols].rename(columns={
+        "date": "Date Inspection",
+        "transfo_id": "Transformateur",
+        "aspet _gen": "Aspect Général",
+        "var_aspet_gen": "Var. Aspect Général",
+        "silicagel(%)": "Silicagel (%)",
+        "var_silicagel(%)": "Δ Silicagel (%)",
+        "buchings": "Buchings",
+        "var_buchings": "Var. Buchings",
+        "niveau_huile(°c)": "Niveau Huile",
+        "var_niveau_huile": "Var. Niveau Huile",
+        "temp_huile(°c)": "Temp Huile (°C)",
+        "var_temp_huile(°c)": "Δ Temp (°C)"
+    })
+    
+    st.dataframe(df_display.style.format({
+        "Δ Silicagel (%)": "{:+.1f}",
+        "Δ Temp (°C)": "{:+.1f}"
+    }), use_container_width=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # ==========================================
 # 5. KPIS GLOBAUX
@@ -204,9 +240,7 @@ if search_query:
 total_inspections = len(filtered_df)
 anomalies_count = len(filtered_df[filtered_df["critique"] == True])
 fuites_buchings = len(filtered_df[filtered_df["buchings"] == "fuite"])
-silica_var_moy = (
-    filtered_df["silica_diff"].abs().mean() if not filtered_df.empty else 0
-)
+silica_var_moy = filtered_df["var_silicagel(%)"].abs().mean() if not filtered_df.empty else 0
 
 k1, k2, k3, k4 = st.columns(4)
 with k1:
@@ -234,7 +268,7 @@ with k3:
         f"""<div class="metric-card {b_class}">
             <div class="metric-title">Fuites Buchings</div>
             <div class="metric-value">{fuites_buchings}</div>
-            <div class="metric-sub">Traversées actuellement défectueuses</div>
+            <div class="metric-sub">Traversées défectueuses</div>
         </div>""",
         unsafe_allow_html=True,
     )
@@ -253,16 +287,14 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ==========================================
 # 6. ONGLETS D'ANALYSE
 # ==========================================
-tab_overview, tab_contingency, tab_evolution, tab_predictions, tab_data = (
-    st.tabs(
-        [
-            "📊 Vue d'ensemble",
-            "🧮 Contingence & Croisements",
-            "📈 Évolution Temporelle Transfo",
-            "🔮 Prédictions à 1 & 2 Mois (IA)",
-            "📋 Registre des Données",
-        ]
-    )
+tab_overview, tab_contingency, tab_evolution, tab_predictions, tab_data = st.tabs(
+    [
+        "📊 Vue d'ensemble",
+        "🧮 Contingence & Croisements",
+        "📈 Évolution Temporelle Transfo",
+        "🔮 Prédictions à 1 & 2 Mois (IA)",
+        "📋 Registre des Données",
+    ]
 )
 
 # --- TAB 1 : VUE D'ENSEMBLE ---
@@ -279,14 +311,10 @@ with tab_overview:
                 template="plotly_dark",
                 color_discrete_map={"propre": "#3B82F6", "sale": "#EF4444"},
             )
-            fig_temp.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                xaxis_tickangle=-45,
-            )
+            fig_temp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis_tickangle=-45)
             st.plotly_chart(fig_temp, use_container_width=True)
         else:
-            st.info("Aucune donnée disponible pour cette recherche.")
+            st.info("Aucune donnée disponible.")
 
     with col_b:
         st.subheader("💧 Répartition de l'État du Niveau d'Huile")
@@ -299,19 +327,14 @@ with tab_overview:
                 template="plotly_dark",
                 color_discrete_map={"propre": "#10B981", "fuite": "#EF4444"},
             )
-            fig_huile.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
-            )
+            fig_huile.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig_huile, use_container_width=True)
         else:
-            st.info("Aucune donnée disponible pour cette recherche.")
+            st.info("Aucune donnée disponible.")
 
 # --- TAB 2 : CONTINGENCE & CROISEMENTS ---
 with tab_contingency:
-    st.subheader(
-        "🧮 Tableau de Contingence & Profils Lignes (Aspect Général vs Buchings)"
-    )
-
+    st.subheader("🧮 Tableau de Contingence & Profils Lignes (Aspect Général vs Buchings)")
     if not filtered_df.empty:
         ct_raw = pd.crosstab(
             filtered_df["aspet _gen"],
@@ -319,7 +342,6 @@ with tab_contingency:
             margins=True,
             margins_name="Total",
         )
-
         ct_prop = (
             pd.crosstab(
                 filtered_df["aspet _gen"],
@@ -330,20 +352,13 @@ with tab_contingency:
         )
 
         col_ct1, col_ct2 = st.columns(2)
-
         with col_ct1:
             st.markdown("#### 🔢 Fréquences Absolues (Nombre d'Inspections)")
-            st.dataframe(
-                ct_raw.style.format("{:d}"),
-                use_container_width=True,
-            )
+            st.dataframe(ct_raw.style.format("{:d}"), use_container_width=True)
 
         with col_ct2:
             st.markdown("#### 📊 Profil Ligne (% de fuites par état d'aspect)")
-            st.dataframe(
-                ct_prop.style.format("{:.2f} %"),
-                use_container_width=True,
-            )
+            st.dataframe(ct_prop.style.format("{:.2f} %"), use_container_width=True)
 
         st.markdown("---")
         st.subheader("📉 Représentation Graphique de la Contingence")
@@ -373,9 +388,7 @@ with tab_contingency:
             template="plotly_dark",
             color_discrete_map={"propre": "#10B981", "fuite": "#EF4444"},
         )
-        fig_ct.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
-        )
+        fig_ct.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig_ct, use_container_width=True)
     else:
         st.warning("Aucune donnée correspondant à votre recherche.")
@@ -383,7 +396,6 @@ with tab_contingency:
 # --- TAB 3 : ÉVOLUTION TEMPORELLE ---
 with tab_evolution:
     st.subheader("📈 Suivi Chronologique par Transformateur")
-
     transfo_target = st.selectbox(
         "Sélectionner un transformateur à analyser :",
         sorted(list(df["transfo_id"].unique())),
@@ -393,7 +405,6 @@ with tab_evolution:
     df_single = df[df["transfo_id"] == transfo_target].sort_values("date")
 
     col_ev1, col_ev2 = st.columns(2)
-
     with col_ev1:
         st.markdown("#### 🧪 Évolution du Silicagel (%) & Deltas")
         fig_sil_ev = go.Figure()
@@ -409,17 +420,13 @@ with tab_evolution:
         fig_sil_ev.add_trace(
             go.Bar(
                 x=df_single["date"],
-                y=df_single["silica_diff"],
+                y=df_single["var_silicagel(%)"],
                 name="Variation Δ (%)",
                 marker_color="#F59E0B",
                 opacity=0.6,
             )
         )
-        fig_sil_ev.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-        )
+        fig_sil_ev.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig_sil_ev, use_container_width=True)
 
     with col_ev2:
@@ -435,32 +442,13 @@ with tab_evolution:
             template="plotly_dark",
         )
         fig_oil_ev.update_traces(marker=dict(size=14))
-        fig_oil_ev.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-        )
+        fig_oil_ev.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig_oil_ev, use_container_width=True)
-
-    st.markdown("#### 🔬 Analyse Statistiques des Variations de Silicagel")
-    col_stat1, col_stat2, col_stat3 = st.columns(3)
-    col_stat1.metric(
-        "Moyenne du Silicagel", f"{df_single['silicagel(%)'].mean():.1f} %"
-    )
-    col_stat2.metric(
-        "Écart-type Silicagel", f"{df_single['silicagel(%)'].std():.2f} %"
-    )
-    col_stat3.metric(
-        "Variation Max (Δ)",
-        f"{df_single['silica_diff'].abs().max():.1f} %",
-    )
 
 # --- TAB 4 : PRÉDICTIONS RÉELLES (IA) ---
 with tab_predictions:
     st.subheader("🔮 Prévision des Risques de Fuite des Buchings (M+1 & M+2)")
-    st.markdown(
-        "Modèle IA entraîné sur l'ensemble de l'historique pour estimer la probabilité de fuite aux Buchings à M+1 et M+2."
-    )
+    st.markdown("Prévisions réalisées par modèle prédictif sur l'état futur des traversées.")
 
     X_features = [
         "puissance(kva)",
@@ -477,12 +465,9 @@ with tab_predictions:
     model = LogisticRegression(max_iter=1000)
     model.fit(X_encoded, y_train)
 
-    latest_df = (
-        df.sort_values("date").groupby("transfo_id").last().reset_index()
-    )
+    latest_df = df.sort_values("date").groupby("transfo_id").last().reset_index()
 
     forecast_results = []
-
     for _, row in latest_df.iterrows():
         t_id = row["transfo_id"]
 
@@ -500,31 +485,20 @@ with tab_predictions:
             "tension_pri(v)": row["tension_pri(v)"],
             "temp_huile(°c)": min(row["temp_huile(°c)"] + 4, 75),
             "silicagel(%)": max(row["silicagel(%)"] - 10, 10),
-            "aspet _gen": "sale"
-            if row["aspet _gen"] == "sale"
-            else row["aspet _gen"],
+            "aspet _gen": "sale" if row["aspet _gen"] == "sale" else row["aspet _gen"],
             "niveau_huile(°c)": row["niveau_huile(°c)"],
         }
 
         df_m1 = pd.DataFrame([feat_m1])
         df_m2 = pd.DataFrame([feat_m2])
 
-        enc_m1 = pd.get_dummies(df_m1, drop_first=True).reindex(
-            columns=X_encoded.columns, fill_value=0
-        )
-        enc_m2 = pd.get_dummies(df_m2, drop_first=True).reindex(
-            columns=X_encoded.columns, fill_value=0
-        )
+        enc_m1 = pd.get_dummies(df_m1, drop_first=True).reindex(columns=X_encoded.columns, fill_value=0)
+        enc_m2 = pd.get_dummies(df_m2, drop_first=True).reindex(columns=X_encoded.columns, fill_value=0)
 
         p_fuite_m1 = model.predict_proba(enc_m1)[0][1] * 100
         p_fuite_m2 = model.predict_proba(enc_m2)[0][1] * 100
 
-        if p_fuite_m2 >= 50:
-            risk_level = "🔴 Critique"
-        elif p_fuite_m2 >= 25:
-            risk_level = "🟠 Moyen"
-        else:
-            risk_level = "🟢 Faible"
+        risk_level = "🔴 Critique" if p_fuite_m2 >= 50 else ("🟠 Moyen" if p_fuite_m2 >= 25 else "🟢 Faible")
 
         forecast_results.append(
             {
@@ -537,15 +511,9 @@ with tab_predictions:
             }
         )
 
-    df_forecast = pd.DataFrame(forecast_results).sort_values(
-        "Prob. Fuite M+2 (%)", ascending=False
-    )
-
+    df_forecast = pd.DataFrame(forecast_results).sort_values("Prob. Fuite M+2 (%)", ascending=False)
     st.markdown("#### 📋 Tableau de Prévision par Transformateur")
     st.dataframe(df_forecast, use_container_width=True)
-
-    st.markdown("---")
-    st.markdown("#### 📊 Comparatif des Probabilités de Fuite à M+1 et M+2")
 
     fig_prev = px.bar(
         df_forecast,
@@ -556,11 +524,7 @@ with tab_predictions:
         template="plotly_dark",
         color_discrete_sequence=["#F59E0B", "#EF4444"],
     )
-    fig_prev.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        xaxis_tickangle=-45,
-    )
+    fig_prev.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis_tickangle=-45)
     st.plotly_chart(fig_prev, use_container_width=True)
 
 # --- TAB 5 : REGISTRE DE DONNÉES ---

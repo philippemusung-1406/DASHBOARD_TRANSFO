@@ -6,4 +6,3 @@ scikit-learn
 matplotlib
 numpy
 seaborn
-sklearn.model_selection

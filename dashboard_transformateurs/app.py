@@ -328,11 +328,29 @@ tab_overview, tab_contingency, tab_evolution, tab_predictions, tab_data = st.tab
     ]
 )
 
-# --- TAB 1 : VUE D'ENSEMBLE ---
+# --- TAB 1 : VUE D'ENSEMBLE (ENRICHIE) ---
 with tab_overview:
-    col_a, col_b = st.columns(2)
+    # 1. KPIs de Santé du Parc
+    nb_total_transfos = filtered_df["transfo_id"].nunique()
+    transfos_critiques = filtered_df[filtered_df["critique"] == True]["transfo_id"].nunique()
+    health_score = max(0, int(((nb_total_transfos - transfos_critiques) / max(1, nb_total_transfos)) * 100))
+
+    st.markdown("#### 🛡️ Indice de Santé Global du Parc")
+    h1, h2, h3 = st.columns(3)
+    with h1:
+        st.metric("Indice de Santé (Health Score)", f"{health_score} %", delta=f"{'-' if health_score < 80 else '+'}{100-health_score}% risque")
+    with h2:
+        st.metric("Transformateurs en Alerte", f"{transfos_critiques} / {nb_total_transfos}")
+    with h3:
+        st.metric("Taux d'Anomalie Global", f"{round((transfos_critiques/max(1, nb_total_transfos))*100, 1)} %")
+
+    st.markdown("---")
+
+    # 2. Graphiques de distribution et de défaillance
+    col_a, col_b, col_c = st.columns(3)
+    
     with col_a:
-        st.subheader("🌡️ Température d'Huile par Transformateur (°C)")
+        st.subheader("🌡️ Distribution des Températures")
         if not filtered_df.empty:
             fig_temp = px.box(
                 filtered_df,
@@ -342,17 +360,13 @@ with tab_overview:
                 template="plotly_dark",
                 color_discrete_map={"propre": "#3B82F6", "sale": "#EF4444"},
             )
-            fig_temp.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                xaxis_tickangle=-45,
-            )
+            fig_temp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis_tickangle=-45)
             st.plotly_chart(fig_temp, use_container_width=True)
         else:
             st.info("Aucune donnée disponible.")
 
     with col_b:
-        st.subheader("💧 Répartition de l'État du Niveau d'Huile")
+        st.subheader("💧 Niveau d'Huile vs Buchings")
         if not filtered_df.empty:
             fig_huile = px.histogram(
                 filtered_df,
@@ -362,12 +376,53 @@ with tab_overview:
                 template="plotly_dark",
                 color_discrete_map={"propre": "#10B981", "fuite": "#EF4444"},
             )
-            fig_huile.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
-            )
+            fig_huile.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig_huile, use_container_width=True)
         else:
             st.info("Aucune donnée disponible.")
+
+    with col_c:
+        st.subheader("🍩 Répartition des Anomalies")
+        if not filtered_df.empty:
+            nb_fuite_b = len(filtered_df[filtered_df["buchings"] == "fuite"])
+            nb_temp_haute = len(filtered_df[filtered_df["temp_huile(°c)"] >= 50])
+            nb_aspect_sale = len(filtered_df[filtered_df["aspet _gen"] == "sale"])
+            
+            df_defauts = pd.DataFrame({
+                "Type": ["Fuite Buchings", "Surchauffe (>50°C)", "Aspect Sale"],
+                "Nombre": [nb_fuite_b, nb_temp_haute, nb_aspect_sale]
+            })
+            
+            fig_donut = px.pie(
+                df_defauts, 
+                names="Type", 
+                values="Nombre", 
+                hole=0.4,
+                template="plotly_dark",
+                color_discrete_sequence=["#EF4444", "#F59E0B", "#3B82F6"]
+            )
+            fig_donut.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig_donut, use_container_width=True)
+        else:
+            st.info("Aucune donnée disponible.")
+
+    st.markdown("---")
+
+    # 3. Top 5 des Équipements Critiques
+    st.subheader("⚠️ Top 5 des Équipements à Intervenir en Priorité")
+    df_top_critique = filtered_df[filtered_df["critique"] == True].groupby("transfo_id").last().reset_index()
+    if not df_top_critique.empty:
+        cols_prio = ["transfo_id", "date", "temp_huile(°c)", "buchings", "niveau_huile(°c)", "aspet _gen"]
+        st.dataframe(df_top_critique[cols_prio].rename(columns={
+            "transfo_id": "Transformateur",
+            "date": "Dernière Inspection",
+            "temp_huile(°c)": "Temp (°C)",
+            "buchings": "État Buchings",
+            "niveau_huile(°c)": "Niveau Huile",
+            "aspet _gen": "Aspect Général"
+        }), use_container_width=True)
+    else:
+        st.success("✅ Aucun transformateur en état critique détecté pour la sélection actuelle.")
 
 # --- TAB 2 : CONTINGENCE & CROISEMENTS ---
 with tab_contingency:
@@ -434,7 +489,7 @@ with tab_contingency:
     else:
         st.warning("Aucune donnée correspondant à votre recherche.")
 
-# --- TAB 3 : ÉVOLUTION TEMPORELLE (ENRICHIE) ---
+# --- TAB 3 : ÉVOLUTION TEMPORELLE ---
 with tab_evolution:
     st.subheader("📈 Suivi Chronologique Détaillé par Transformateur")
     
@@ -447,8 +502,6 @@ with tab_evolution:
     df_single = df[df["transfo_id"] == transfo_target].sort_values("date")
 
     if not df_single.empty:
-        # --- SECTIONS HISTORIQUES demandées ---
-        
         # 1. Historique Température d'Huile & Silicagel
         st.markdown("#### 🌡️ 1. Historique Température d'Huile & Silicagel (%)")
         col_t1, col_t2 = st.columns(2)
@@ -463,7 +516,6 @@ with tab_evolution:
                     line=dict(color="#EF4444", width=3),
                 )
             )
-            # Ligne de seuil critique (50°C)
             fig_temp_ev.add_hline(
                 y=50, line_dash="dash", line_color="#F59E0B", annotation_text="Seuil d'alerte (50°C)"
             )

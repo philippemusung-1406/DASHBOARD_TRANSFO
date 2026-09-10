@@ -150,7 +150,7 @@ def process_data(source):
         (df["temp_huile(°c)"] >= 50)
         | (df["niveau_huile(°c)"] == "rouge")
         | (df["buchings"] == "fuite")
-        | (df["relais_buchh"] == "fuite")
+        | (df.get("relais_buchh", pd.Series([""] * len(df))) == "fuite")
     )
     df.loc[mask_alert, "critique"] = True
 
@@ -173,14 +173,12 @@ with col_title:
 with col_search_box:
     st.markdown("### 🔍 Chargement & Recherche Rapide")
 
-    # Module de téléversement intégré dans la zone de recherche à droite
     uploaded_file = st.file_uploader(
         "📂 Téléverser un fichier Excel à examiner (.xlsx, .xls)",
         type=["xlsx", "xls"],
         key="main_excel_uploader",
     )
 
-    # Chargement du fichier téléversé ou local
     if uploaded_file:
         df = process_data(uploaded_file)
         st.success("✅ Fichier personnalisé chargé avec succès !")
@@ -436,9 +434,10 @@ with tab_contingency:
     else:
         st.warning("Aucune donnée correspondant à votre recherche.")
 
-# --- TAB 3 : ÉVOLUTION TEMPORELLE ---
+# --- TAB 3 : ÉVOLUTION TEMPORELLE (ENRICHIE) ---
 with tab_evolution:
-    st.subheader("📈 Suivi Chronologique par Transformateur")
+    st.subheader("📈 Suivi Chronologique Détaillé par Transformateur")
+    
     transfo_target = st.selectbox(
         "Sélectionner un transformateur à analyser :",
         sorted(list(df["transfo_id"].unique())),
@@ -447,54 +446,144 @@ with tab_evolution:
 
     df_single = df[df["transfo_id"] == transfo_target].sort_values("date")
 
-    col_ev1, col_ev2 = st.columns(2)
-    with col_ev1:
-        st.markdown("#### 🧪 Évolution du Silicagel (%) & Deltas")
-        fig_sil_ev = go.Figure()
-        fig_sil_ev.add_trace(
-            go.Scatter(
-                x=df_single["date"],
-                y=df_single["silicagel(%)"],
-                mode="lines+markers",
-                name="Silicagel (%)",
-                line=dict(color="#3B82F6", width=3),
+    if not df_single.empty:
+        # --- SECTIONS HISTORIQUES demandées ---
+        
+        # 1. Historique Température d'Huile & Silicagel
+        st.markdown("#### 🌡️ 1. Historique Température d'Huile & Silicagel (%)")
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            fig_temp_ev = go.Figure()
+            fig_temp_ev.add_trace(
+                go.Scatter(
+                    x=df_single["date"],
+                    y=df_single["temp_huile(°c)"],
+                    mode="lines+markers",
+                    name="Temp Huile (°C)",
+                    line=dict(color="#EF4444", width=3),
+                )
             )
-        )
-        fig_sil_ev.add_trace(
-            go.Bar(
-                x=df_single["date"],
-                y=df_single["var_silicagel(%)"],
-                name="Variation Δ (%)",
-                marker_color="#F59E0B",
-                opacity=0.6,
+            # Ligne de seuil critique (50°C)
+            fig_temp_ev.add_hline(
+                y=50, line_dash="dash", line_color="#F59E0B", annotation_text="Seuil d'alerte (50°C)"
             )
-        )
-        fig_sil_ev.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-        )
-        st.plotly_chart(fig_sil_ev, use_container_width=True)
+            fig_temp_ev.update_layout(
+                title="Évolution de la Température d'Huile (°C)",
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(fig_temp_ev, use_container_width=True)
 
-    with col_ev2:
-        st.markdown("#### 🛢️ Historique du Niveau d'Huile")
-        color_map_huile = {"vert": "#10B981", "jaune": "#F59E0B", "rouge": "#EF4444"}
-        fig_oil_ev = px.scatter(
-            df_single,
-            x="date",
-            y="niveau_huile(°c)",
-            color="niveau_huile(°c)",
-            size="temp_huile(°c)",
-            color_discrete_map=color_map_huile,
-            template="plotly_dark",
-        )
-        fig_oil_ev.update_traces(marker=dict(size=14))
-        fig_oil_ev.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-        )
-        st.plotly_chart(fig_oil_ev, use_container_width=True)
+        with col_t2:
+            fig_sil_ev = go.Figure()
+            fig_sil_ev.add_trace(
+                go.Scatter(
+                    x=df_single["date"],
+                    y=df_single["silicagel(%)"],
+                    mode="lines+markers",
+                    name="Silicagel (%)",
+                    line=dict(color="#3B82F6", width=3),
+                )
+            )
+            fig_sil_ev.add_trace(
+                go.Bar(
+                    x=df_single["date"],
+                    y=df_single["var_silicagel(%)"],
+                    name="Variation Δ (%)",
+                    marker_color="#F59E0B",
+                    opacity=0.6,
+                )
+            )
+            fig_sil_ev.update_layout(
+                title="Évolution du Silicagel (%) & Deltas",
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(fig_sil_ev, use_container_width=True)
+
+        st.markdown("---")
+
+        # 2. Historique États des Buchings & Aspect Général
+        st.markdown("#### 🔍 2. Historique des États (Buchings & Aspect Général)")
+        col_ev3, col_ev4 = st.columns(2)
+        with col_ev3:
+            fig_buch = px.scatter(
+                df_single,
+                x="date",
+                y="buchings",
+                color="buchings",
+                title="Historique des États des Buchings (Traversées)",
+                color_discrete_map={"propre": "#10B981", "fuite": "#EF4444"},
+                template="plotly_dark",
+            )
+            fig_buch.update_traces(marker=dict(size=14, symbol="square"))
+            fig_buch.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_buch, use_container_width=True)
+
+        with col_ev4:
+            fig_asp = px.scatter(
+                df_single,
+                x="date",
+                y="aspet _gen",
+                color="aspet _gen",
+                title="Historique Aspect Général",
+                color_discrete_map={"propre": "#3B82F6", "sale": "#EF4444"},
+                template="plotly_dark",
+            )
+            fig_asp.update_traces(marker=dict(size=14, symbol="diamond"))
+            fig_asp.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_asp, use_container_width=True)
+
+        st.markdown("---")
+
+        # 3. Historique Relais Buchholz & Niveau d'Huile
+        st.markdown("#### 🛡️ 3. Historique Relais Buchholz & Niveau d'Huile")
+        col_ev5, col_ev6 = st.columns(2)
+        with col_ev5:
+            if "relais_buchh" in df_single.columns:
+                fig_buchh = px.scatter(
+                    df_single,
+                    x="date",
+                    y="relais_buchh",
+                    color="relais_buchh",
+                    title="Historique Relais Buchholz",
+                    color_discrete_map={"propre": "#10B981", "fuite": "#EF4444", "sans": "#9CA3AF"},
+                    template="plotly_dark",
+                )
+                fig_buchh.update_traces(marker=dict(size=14, symbol="circle"))
+                fig_buchh.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+                )
+                st.plotly_chart(fig_buchh, use_container_width=True)
+            else:
+                st.info("Colonne 'relais_buchh' non trouvée dans le dataset.")
+
+        with col_ev6:
+            color_map_huile = {"vert": "#10B981", "jaune": "#F59E0B", "rouge": "#EF4444"}
+            fig_oil_ev = px.scatter(
+                df_single,
+                x="date",
+                y="niveau_huile(°c)",
+                color="niveau_huile(°c)",
+                size="temp_huile(°c)",
+                title="Historique du Niveau d'Huile (Taille = Température)",
+                color_discrete_map=color_map_huile,
+                template="plotly_dark",
+            )
+            fig_oil_ev.update_traces(marker=dict(size=14))
+            fig_oil_ev.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_oil_ev, use_container_width=True)
+
+    else:
+        st.warning("Aucune donnée disponible pour cet équipement.")
 
 # --- TAB 4 : PRÉDICTIONS RÉELLES (IA) ---
 with tab_predictions:

@@ -100,7 +100,7 @@ def process_data(source):
 
     text_cols = df.select_dtypes(include="object").columns
     for col in text_cols:
-        df[col] = df[col].astype(str).str.strip()
+        df[col] = df[col].astype(str).str.strip().str.lower()
 
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"])
@@ -151,10 +151,80 @@ def process_data(source):
         | (df["niveau_huile(°c)"] == "rouge")
         | (df["buchings"] == "fuite")
         | (df.get("relais_buchh", pd.Series([""] * len(df))) == "fuite")
+        | (df["silicagel(%)"] <= 40)
     )
     df.loc[mask_alert, "critique"] = True
 
     return df
+
+
+# ==========================================
+# FONCTION GÉNÉRALE D'AFFICHAGE DES ALERTES
+# ==========================================
+def afficher_alertes(df_data):
+    """Analyse le sous-ensemble de données et affiche les alertes opérationnelles."""
+    if df_data.empty:
+        return
+
+    # Extraction des derniers relevés par transformateur
+    derniers_releves = df_data.sort_values("date").groupby("transfo_id").last().reset_index()
+
+    alertes_silicagel = []
+    alertes_huile_jaune = []
+    alertes_huile_rouge = []
+    alertes_fuites = []
+
+    for _, row in derniers_releves.iterrows():
+        t_id = row["transfo_id"]
+
+        # 1. Alerte Silicagel <= 40%
+        if row.get("silicagel(%)", 100) <= 40:
+            alertes_silicagel.append(f"**{t_id}** (Niveau : {row['silicagel(%)']}%)")
+
+        # 2. Alertes Niveau d'Huile
+        niv_h = str(row.get("niveau_huile(°c)", "")).lower()
+        if niv_h == "jaune":
+            alertes_huile_jaune.append(f"**{t_id}**")
+        elif niv_h == "rouge":
+            alertes_huile_rouge.append(f"**{t_id}**")
+
+        # 3. Alertes Fuites (Buchings / Relais Buchholz)
+        a_fuite = False
+        if str(row.get("buchings", "")).lower() == "fuite":
+            a_fuite = True
+        if "relais_buchh" in row and str(row.get("relais_buchh", "")).lower() == "fuite":
+            a_fuite = True
+
+        if a_fuite:
+            alertes_fuites.append(f"**{t_id}**")
+
+    # Affichage des conteneurs d'alertes
+    if alertes_silicagel or alertes_huile_jaune or alertes_huile_rouge or alertes_fuites:
+        st.markdown("### 🚨 Centre d'Alertes et Maintenance Prioritaire")
+
+        if alertes_silicagel:
+            st.error(
+                f"⚠️ **Alerte Silicagel (≤ 40%) - À remplacer :** "
+                f"Le silicagel doit être remplacé sur les équipements suivants : {', '.join(alertes_silicagel)}"
+            )
+
+        if alertes_huile_jaune:
+            st.warning(
+                f"🟡 **Alerte Niveau d'Huile (Jaune) - Programmer l'appoint d'huile :** "
+                f"Action requise pour : {', '.join(alertes_huile_jaune)}"
+            )
+
+        if alertes_huile_rouge:
+            st.error(
+                f"🔴 **Alerte Niveau d'Huile (Rouge) - Le transfo nécessite un appoint d'huile :** "
+                f"Action urgente pour : {', '.join(alertes_huile_rouge)}"
+            )
+
+        if alertes_fuites:
+            st.error(
+                f"💧 **Alerte Fuite Décelée - Indique le transfo à éliminer les fuites :** "
+                f"Intervention requise sur : {', '.join(alertes_fuites)}"
+            )
 
 
 # ==========================================
@@ -215,6 +285,9 @@ if len(date_range) == 2:
 
 if selected_transfo != "Tous les équipements":
     filtered_df = filtered_df[filtered_df["transfo_id"] == selected_transfo]
+
+# Affichage d'Alerte Globale
+afficher_alertes(filtered_df)
 
 # ==========================================
 # 4. TABLEAU DE SYNTHÈSE DES VARIATIONS
@@ -328,9 +401,10 @@ tab_overview, tab_contingency, tab_evolution, tab_predictions, tab_data = st.tab
     ]
 )
 
-# --- TAB 1 : VUE D'ENSEMBLE (ENRICHIE) ---
+# --- TAB 1 : VUE D'ENSEMBLE ---
 with tab_overview:
-    # 1. KPIs de Santé du Parc
+    afficher_alertes(filtered_df)
+
     nb_total_transfos = filtered_df["transfo_id"].nunique()
     transfos_critiques = filtered_df[filtered_df["critique"] == True]["transfo_id"].nunique()
     health_score = max(0, int(((nb_total_transfos - transfos_critiques) / max(1, nb_total_transfos)) * 100))
@@ -346,7 +420,6 @@ with tab_overview:
 
     st.markdown("---")
 
-    # 2. Graphiques de distribution et de défaillance
     col_a, col_b, col_c = st.columns(3)
     
     with col_a:
@@ -386,11 +459,11 @@ with tab_overview:
         if not filtered_df.empty:
             nb_fuite_b = len(filtered_df[filtered_df["buchings"] == "fuite"])
             nb_temp_haute = len(filtered_df[filtered_df["temp_huile(°c)"] >= 50])
-            nb_aspect_sale = len(filtered_df[filtered_df["aspet _gen"] == "sale"])
+            nb_silicagel_bas = len(filtered_df[filtered_df["silicagel(%)"] <= 40])
             
             df_defauts = pd.DataFrame({
-                "Type": ["Fuite Buchings", "Surchauffe (>50°C)", "Aspect Sale"],
-                "Nombre": [nb_fuite_b, nb_temp_haute, nb_aspect_sale]
+                "Type": ["Fuite Buchings", "Surchauffe (>50°C)", "Silicagel Bas (≤40%)"],
+                "Nombre": [nb_fuite_b, nb_temp_haute, nb_silicagel_bas]
             })
             
             fig_donut = px.pie(
@@ -408,15 +481,15 @@ with tab_overview:
 
     st.markdown("---")
 
-    # 3. Top 5 des Équipements Critiques
     st.subheader("⚠️ Top 5 des Équipements à Intervenir en Priorité")
     df_top_critique = filtered_df[filtered_df["critique"] == True].groupby("transfo_id").last().reset_index()
     if not df_top_critique.empty:
-        cols_prio = ["transfo_id", "date", "temp_huile(°c)", "buchings", "niveau_huile(°c)", "aspet _gen"]
+        cols_prio = ["transfo_id", "date", "temp_huile(°c)", "silicagel(%)", "buchings", "niveau_huile(°c)", "aspet _gen"]
         st.dataframe(df_top_critique[cols_prio].rename(columns={
             "transfo_id": "Transformateur",
             "date": "Dernière Inspection",
             "temp_huile(°c)": "Temp (°C)",
+            "silicagel(%)": "Silicagel (%)",
             "buchings": "État Buchings",
             "niveau_huile(°c)": "Niveau Huile",
             "aspet _gen": "Aspect Général"
@@ -426,6 +499,8 @@ with tab_overview:
 
 # --- TAB 2 : CONTINGENCE & CROISEMENTS ---
 with tab_contingency:
+    afficher_alertes(filtered_df)
+
     st.subheader(
         "🧮 Tableau de Contingence & Profils Lignes (Aspect Général vs Buchings)"
     )
@@ -500,9 +575,10 @@ with tab_evolution:
     )
 
     df_single = df[df["transfo_id"] == transfo_target].sort_values("date")
+    
+    afficher_alertes(df_single)
 
     if not df_single.empty:
-        # 1. Historique Température d'Huile & Silicagel
         st.markdown("#### 🌡️ 1. Historique Température d'Huile & Silicagel (%)")
         col_t1, col_t2 = st.columns(2)
         with col_t1:
@@ -538,6 +614,9 @@ with tab_evolution:
                     line=dict(color="#3B82F6", width=3),
                 )
             )
+            fig_sil_ev.add_hline(
+                y=40, line_dash="dash", line_color="#EF4444", annotation_text="Seuil de remplacement (40%)"
+            )
             fig_sil_ev.add_trace(
                 go.Bar(
                     x=df_single["date"],
@@ -557,7 +636,6 @@ with tab_evolution:
 
         st.markdown("---")
 
-        # 2. Historique États des Buchings & Aspect Général
         st.markdown("#### 🔍 2. Historique des États (Buchings & Aspect Général)")
         col_ev3, col_ev4 = st.columns(2)
         with col_ev3:
@@ -594,7 +672,6 @@ with tab_evolution:
 
         st.markdown("---")
 
-        # 3. Historique Relais Buchholz & Niveau d'Huile
         st.markdown("#### 🛡️ 3. Historique Relais Buchholz & Niveau d'Huile")
         col_ev5, col_ev6 = st.columns(2)
         with col_ev5:
@@ -639,6 +716,8 @@ with tab_evolution:
 
 # --- TAB 4 : PRÉDICTIONS RÉELLES (IA) ---
 with tab_predictions:
+    afficher_alertes(filtered_df)
+
     st.subheader("🔮 Prévision des Risques de Fuite des Buchings (M+1 & M+2)")
     st.markdown(
         "Prévisions réalisées par modèle prédictif sur l'état futur des traversées."
@@ -659,7 +738,7 @@ with tab_predictions:
     model = LogisticRegression(max_iter=1000)
     model.fit(X_encoded, y_train)
 
-    latest_df = df.sort_values("date").groupby("transfo_id").last().reset_index()
+    latest_df = filtered_df.sort_values("date").groupby("transfo_id").last().reset_index()
 
     forecast_results = []
     for _, row in latest_df.iterrows():
@@ -713,30 +792,35 @@ with tab_predictions:
             }
         )
 
-    df_forecast = pd.DataFrame(forecast_results).sort_values(
-        "Prob. Fuite M+2 (%)", ascending=False
-    )
-    st.markdown("#### 📋 Tableau de Prévision par Transformateur")
-    st.dataframe(df_forecast, use_container_width=True)
+    if forecast_results:
+        df_forecast = pd.DataFrame(forecast_results).sort_values(
+            "Prob. Fuite M+2 (%)", ascending=False
+        )
+        st.markdown("#### 📋 Tableau de Prévision par Transformateur")
+        st.dataframe(df_forecast, use_container_width=True)
 
-    fig_prev = px.bar(
-        df_forecast,
-        x="Transformateur",
-        y=["Prob. Fuite M+1 (%)", "Prob. Fuite M+2 (%)"],
-        barmode="group",
-        title="Évolution prédictive des risques de fuite aux traversées",
-        template="plotly_dark",
-        color_discrete_sequence=["#F59E0B", "#EF4444"],
-    )
-    fig_prev.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        xaxis_tickangle=-45,
-    )
-    st.plotly_chart(fig_prev, use_container_width=True)
+        fig_prev = px.bar(
+            df_forecast,
+            x="Transformateur",
+            y=["Prob. Fuite M+1 (%)", "Prob. Fuite M+2 (%)"],
+            barmode="group",
+            title="Évolution prédictive des risques de fuite aux traversées",
+            template="plotly_dark",
+            color_discrete_sequence=["#F59E0B", "#EF4444"],
+        )
+        fig_prev.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            xaxis_tickangle=-45,
+        )
+        st.plotly_chart(fig_prev, use_container_width=True)
+    else:
+        st.info("Aucune donnée pour la prédiction.")
 
 # --- TAB 5 : REGISTRE DE DONNÉES ---
 with tab_data:
+    afficher_alertes(filtered_df)
+
     st.subheader("📋 Vue Intégrale des Inspections (Filtrée)")
     st.dataframe(filtered_df, use_container_width=True)
 

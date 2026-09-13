@@ -159,72 +159,116 @@ def process_data(source):
 
 
 # ==========================================
-# FONCTION GÉNÉRALE D'AFFICHAGE DES ALERTES
+# FONCTION D'AFFICHAGE ET D'EXPORT DES ALERTES
 # ==========================================
-def afficher_alertes(df_data):
-    """Analyse le sous-ensemble de données et affiche les alertes opérationnelles."""
+def afficher_alertes(df_data, tab_prefix="main"):
+    """Analyse les données, affiche les alertes et génère des tableaux téléchargeables en CSV."""
     if df_data.empty:
         return
 
-    # Extraction des derniers relevés par transformateur
-    derniers_releves = df_data.sort_values("date").groupby("transfo_id").last().reset_index()
+    # Derniers relevés par transformateur
+    derniers = df_data.sort_values("date").groupby("transfo_id").last().reset_index()
 
-    alertes_silicagel = []
-    alertes_huile_jaune = []
-    alertes_huile_rouge = []
-    alertes_fuites = []
+    # 1. Filtres pour chaque type d'alerte
+    df_silicagel = derniers[derniers["silicagel(%)"] <= 40]
+    df_huile_jaune = derniers[derniers["niveau_huile(°c)"].astype(str).str.lower() == "jaune"]
+    df_huile_rouge = derniers[derniers["niveau_huile(°c)"].astype(str).str.lower() == "rouge"]
+    
+    mask_fuite = (derniers["buchings"].astype(str).str.lower() == "fuite")
+    if "relais_buchh" in derniers.columns:
+        mask_fuite = mask_fuite | (derniers["relais_buchh"].astype(str).str.lower() == "fuite")
+    df_fuites = derniers[mask_fuite]
 
-    for _, row in derniers_releves.iterrows():
-        t_id = row["transfo_id"]
+    # Détection s'il existe au moins une alerte
+    has_alerts = not (df_silicagel.empty and df_huile_jaune.empty and df_huile_rouge.empty and df_fuites.empty)
 
-        # 1. Alerte Silicagel <= 40%
-        if row.get("silicagel(%)", 100) <= 40:
-            alertes_silicagel.append(f"**{t_id}** (Niveau : {row['silicagel(%)']}%)")
+    if has_alerts:
+        st.markdown("### 🚨 Centre d'Alertes & Actions Recommandées")
 
-        # 2. Alertes Niveau d'Huile
-        niv_h = str(row.get("niveau_huile(°c)", "")).lower()
-        if niv_h == "jaune":
-            alertes_huile_jaune.append(f"**{t_id}**")
-        elif niv_h == "rouge":
-            alertes_huile_rouge.append(f"**{t_id}**")
+        cols_export = ["transfo_id", "date", "silicagel(%)", "niveau_huile(°c)", "buchings", "temp_huile(°c)"]
+        cols_export_exist = [c for c in cols_export if c in derniers.columns]
 
-        # 3. Alertes Fuites (Buchings / Relais Buchholz)
-        a_fuite = False
-        if str(row.get("buchings", "")).lower() == "fuite":
-            a_fuite = True
-        if "relais_buchh" in row and str(row.get("relais_buchh", "")).lower() == "fuite":
-            a_fuite = True
+        # --- ALERTE SILICAGEL ---
+        if not df_silicagel.empty:
+            st.error(f"⚠️ **Alerte Silicagel (≤ 40%) - {len(df_silicagel)} transformateur(s) à remplacer**")
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                st.dataframe(df_silicagel[cols_export_exist].rename(columns={
+                    "transfo_id": "Transformateur", "date": "Date Relevé",
+                    "silicagel(%)": "Silicagel (%)", "niveau_huile(°c)": "Niveau Huile",
+                    "buchings": "Buchings", "temp_huile(°c)": "Temp (°C)"
+                }), use_container_width=True)
+            with c2:
+                csv_sil = df_silicagel[cols_export_exist].to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="📥 Télécharger CSV (Silicagel)",
+                    data=csv_sil,
+                    file_name="alertes_silicagel_remplacement.csv",
+                    mime="text/csv",
+                    key=f"btn_sil_{tab_prefix}"
+                )
 
-        if a_fuite:
-            alertes_fuites.append(f"**{t_id}**")
+        # --- ALERTE HUILE JAUNE ---
+        if not df_huile_jaune.empty:
+            st.warning(f"🟡 **Alerte Niveau d'Huile (Jaune) - {len(df_huile_jaune)} transformateur(s) : Programmer l'appoint d'huile**")
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                st.dataframe(df_huile_jaune[cols_export_exist].rename(columns={
+                    "transfo_id": "Transformateur", "date": "Date Relevé",
+                    "silicagel(%)": "Silicagel (%)", "niveau_huile(°c)": "Niveau Huile",
+                    "buchings": "Buchings", "temp_huile(°c)": "Temp (°C)"
+                }), use_container_width=True)
+            with c2:
+                csv_hj = df_huile_jaune[cols_export_exist].to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="📥 Télécharger CSV (Huile Jaune)",
+                    data=csv_hj,
+                    file_name="alertes_niveau_huile_jaune.csv",
+                    mime="text/csv",
+                    key=f"btn_hj_{tab_prefix}"
+                )
 
-    # Affichage des conteneurs d'alertes
-    if alertes_silicagel or alertes_huile_jaune or alertes_huile_rouge or alertes_fuites:
-        st.markdown("### 🚨 Centre d'Alertes et Maintenance Prioritaire")
+        # --- ALERTE HUILE ROUGE ---
+        if not df_huile_rouge.empty:
+            st.error(f"🔴 **Alerte Niveau d'Huile (Rouge) - {len(df_huile_rouge)} transformateur(s) : Appoint d'huile Nécessaire**")
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                st.dataframe(df_huile_rouge[cols_export_exist].rename(columns={
+                    "transfo_id": "Transformateur", "date": "Date Relevé",
+                    "silicagel(%)": "Silicagel (%)", "niveau_huile(°c)": "Niveau Huile",
+                    "buchings": "Buchings", "temp_huile(°c)": "Temp (°C)"
+                }), use_container_width=True)
+            with c2:
+                csv_hr = df_huile_rouge[cols_export_exist].to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="📥 Télécharger CSV (Huile Rouge)",
+                    data=csv_hr,
+                    file_name="alertes_niveau_huile_rouge.csv",
+                    mime="text/csv",
+                    key=f"btn_hr_{tab_prefix}"
+                )
 
-        if alertes_silicagel:
-            st.error(
-                f"⚠️ **Alerte Silicagel (≤ 40%) - À remplacer :** "
-                f"Le silicagel doit être remplacé sur les équipements suivants : {', '.join(alertes_silicagel)}"
-            )
+        # --- ALERTE FUITES ---
+        if not df_fuites.empty:
+            st.error(f"💧 **Alerte Fuite Décelée - {len(df_fuites)} transformateur(s) à traiter (éliminer les fuites)**")
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                st.dataframe(df_fuites[cols_export_exist].rename(columns={
+                    "transfo_id": "Transformateur", "date": "Date Relevé",
+                    "silicagel(%)": "Silicagel (%)", "niveau_huile(°c)": "Niveau Huile",
+                    "buchings": "Buchings", "temp_huile(°c)": "Temp (°C)"
+                }), use_container_width=True)
+            with c2:
+                csv_f = df_fuites[cols_export_exist].to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="📥 Télécharger CSV (Fuites)",
+                    data=csv_f,
+                    file_name="alertes_fuites_transformateurs.csv",
+                    mime="text/csv",
+                    key=f"btn_f_{tab_prefix}"
+                )
 
-        if alertes_huile_jaune:
-            st.warning(
-                f"🟡 **Alerte Niveau d'Huile (Jaune) - Programmer l'appoint d'huile :** "
-                f"Action requise pour : {', '.join(alertes_huile_jaune)}"
-            )
-
-        if alertes_huile_rouge:
-            st.error(
-                f"🔴 **Alerte Niveau d'Huile (Rouge) - Le transfo nécessite un appoint d'huile :** "
-                f"Action urgente pour : {', '.join(alertes_huile_rouge)}"
-            )
-
-        if alertes_fuites:
-            st.error(
-                f"💧 **Alerte Fuite Décelée - Indique le transfo à éliminer les fuites :** "
-                f"Intervention requise sur : {', '.join(alertes_fuites)}"
-            )
+        st.markdown("---")
 
 
 # ==========================================
@@ -286,8 +330,8 @@ if len(date_range) == 2:
 if selected_transfo != "Tous les équipements":
     filtered_df = filtered_df[filtered_df["transfo_id"] == selected_transfo]
 
-# Affichage d'Alerte Globale
-afficher_alertes(filtered_df)
+# Affichage des Alertes Globales avec Option Téléchargement CSV
+afficher_alertes(filtered_df, tab_prefix="top_page")
 
 # ==========================================
 # 4. TABLEAU DE SYNTHÈSE DES VARIATIONS
@@ -403,7 +447,7 @@ tab_overview, tab_contingency, tab_evolution, tab_predictions, tab_data = st.tab
 
 # --- TAB 1 : VUE D'ENSEMBLE ---
 with tab_overview:
-    afficher_alertes(filtered_df)
+    afficher_alertes(filtered_df, tab_prefix="tab1")
 
     nb_total_transfos = filtered_df["transfo_id"].nunique()
     transfos_critiques = filtered_df[filtered_df["critique"] == True]["transfo_id"].nunique()
@@ -499,7 +543,7 @@ with tab_overview:
 
 # --- TAB 2 : CONTINGENCE & CROISEMENTS ---
 with tab_contingency:
-    afficher_alertes(filtered_df)
+    afficher_alertes(filtered_df, tab_prefix="tab2")
 
     st.subheader(
         "🧮 Tableau de Contingence & Profils Lignes (Aspect Général vs Buchings)"
@@ -576,7 +620,7 @@ with tab_evolution:
 
     df_single = df[df["transfo_id"] == transfo_target].sort_values("date")
     
-    afficher_alertes(df_single)
+    afficher_alertes(df_single, tab_prefix="tab3")
 
     if not df_single.empty:
         st.markdown("#### 🌡️ 1. Historique Température d'Huile & Silicagel (%)")
@@ -716,7 +760,7 @@ with tab_evolution:
 
 # --- TAB 4 : PRÉDICTIONS RÉELLES (IA) ---
 with tab_predictions:
-    afficher_alertes(filtered_df)
+    afficher_alertes(filtered_df, tab_prefix="tab4")
 
     st.subheader("🔮 Prévision des Risques de Fuite des Buchings (M+1 & M+2)")
     st.markdown(
@@ -819,7 +863,7 @@ with tab_predictions:
 
 # --- TAB 5 : REGISTRE DE DONNÉES ---
 with tab_data:
-    afficher_alertes(filtered_df)
+    afficher_alertes(filtered_df, tab_prefix="tab5")
 
     st.subheader("📋 Vue Intégrale des Inspections (Filtrée)")
     st.dataframe(filtered_df, use_container_width=True)

@@ -169,7 +169,7 @@ def afficher_alertes(df_data, tab_prefix="main"):
     # Derniers relevés par transformateur
     derniers = df_data.sort_values("date").groupby("transfo_id").last().reset_index()
 
-    # 1. Filtres pour chaque type d'alerte
+    # Filtres pour chaque type d'alerte
     df_silicagel = derniers[derniers["silicagel(%)"] <= 40]
     df_huile_jaune = derniers[derniers["niveau_huile(°c)"].astype(str).str.lower() == "jaune"]
     df_huile_rouge = derniers[derniers["niveau_huile(°c)"].astype(str).str.lower() == "rouge"]
@@ -179,7 +179,6 @@ def afficher_alertes(df_data, tab_prefix="main"):
         mask_fuite = mask_fuite | (derniers["relais_buchh"].astype(str).str.lower() == "fuite")
     df_fuites = derniers[mask_fuite]
 
-    # Détection s'il existe au moins une alerte
     has_alerts = not (df_silicagel.empty and df_huile_jaune.empty and df_huile_rouge.empty and df_fuites.empty)
 
     if has_alerts:
@@ -330,9 +329,6 @@ if len(date_range) == 2:
 if selected_transfo != "Tous les équipements":
     filtered_df = filtered_df[filtered_df["transfo_id"] == selected_transfo]
 
-# Affichage des Alertes Globales avec Option Téléchargement CSV
-afficher_alertes(filtered_df, tab_prefix="top_page")
-
 # ==========================================
 # 4. TABLEAU DE SYNTHÈSE DES VARIATIONS
 # ==========================================
@@ -447,7 +443,8 @@ tab_overview, tab_contingency, tab_evolution, tab_predictions, tab_data = st.tab
 
 # --- TAB 1 : VUE D'ENSEMBLE ---
 with tab_overview:
-    afficher_alertes(filtered_df, tab_prefix="tab1")
+    # 1. CENTRE D'ALERTES PLACÉ ICI (1ère option retenue)
+    afficher_alertes(filtered_df, tab_prefix="overview")
 
     nb_total_transfos = filtered_df["transfo_id"].nunique()
     transfos_critiques = filtered_df[filtered_df["critique"] == True]["transfo_id"].nunique()
@@ -543,8 +540,6 @@ with tab_overview:
 
 # --- TAB 2 : CONTINGENCE & CROISEMENTS ---
 with tab_contingency:
-    afficher_alertes(filtered_df, tab_prefix="tab2")
-
     st.subheader(
         "🧮 Tableau de Contingence & Profils Lignes (Aspect Général vs Buchings)"
     )
@@ -620,7 +615,8 @@ with tab_evolution:
 
     df_single = df[df["transfo_id"] == transfo_target].sort_values("date")
     
-    afficher_alertes(df_single, tab_prefix="tab3")
+    # 2. CENTRE D'ALERTES PLACÉ ICI (2ème option retenue)
+    afficher_alertes(df_single, tab_prefix="evolution")
 
     if not df_single.empty:
         st.markdown("#### 🌡️ 1. Historique Température d'Huile & Silicagel (%)")
@@ -760,8 +756,6 @@ with tab_evolution:
 
 # --- TAB 4 : PRÉDICTIONS RÉELLES (IA) ---
 with tab_predictions:
-    afficher_alertes(filtered_df, tab_prefix="tab4")
-
     st.subheader("🔮 Prévision des Risques de Fuite des Buchings (M+1 & M+2)")
     st.markdown(
         "Prévisions réalisées par modèle prédictif sur l'état futur des traversées."
@@ -863,8 +857,6 @@ with tab_predictions:
 
 # --- TAB 5 : REGISTRE DE DONNÉES ---
 with tab_data:
-    afficher_alertes(filtered_df, tab_prefix="tab5")
-
     st.subheader("📋 Vue Intégrale des Inspections (Filtrée)")
     st.dataframe(filtered_df, use_container_width=True)
 

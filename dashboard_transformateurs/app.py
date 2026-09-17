@@ -68,22 +68,33 @@ st.markdown(
 )
 
 # ==========================================
-# GESTION DU STOCK AVEC PERSISTANCE CSV
+# GESTION DU STOCK DYNAMIQUE & PERSISTANT
 # ==========================================
 STOCK_FILE = Path(__file__).resolve().parent / "stock_database.csv"
 
 def load_stock():
-    """Charge le stock depuis le fichier CSV ou retourne un DataFrame vide avec les colonnes de base."""
+    """Charge le stock depuis le fichier CSV ou retourne un DataFrame vide typé."""
+    columns = ["Code", "Désignation", "Stock Actuel", "Stock Min", "Prix Unitaire ($)"]
     if STOCK_FILE.exists():
         try:
-            return pd.read_csv(STOCK_FILE)
+            df_loaded = pd.read_csv(STOCK_FILE)
+            if not df_loaded.empty:
+                df_loaded["Stock Actuel"] = pd.to_numeric(df_loaded["Stock Actuel"], errors="coerce").fillna(0).astype(int)
+                df_loaded["Stock Min"] = pd.to_numeric(df_loaded["Stock Min"], errors="coerce").fillna(0).astype(int)
+                df_loaded["Prix Unitaire ($)"] = pd.to_numeric(df_loaded["Prix Unitaire ($)"], errors="coerce").fillna(0.0).astype(float)
+                return df_loaded[columns]
         except Exception:
             pass
-    return pd.DataFrame(columns=["Code", "Désignation", "Stock Actuel", "Stock Min", "Prix Unitaire ($)"])
+    return pd.DataFrame(columns=columns)
 
 def save_stock(df_to_save):
-    """Enregistre le DataFrame de stock sur le disque dur dans le fichier CSV."""
-    df_to_save.to_csv(STOCK_FILE, index=False)
+    """Sauvegarde permanente du DataFrame dans le fichier CSV local."""
+    df_clean = df_to_save.dropna(how="all").copy()
+    if not df_clean.empty:
+        df_clean["Stock Actuel"] = pd.to_numeric(df_clean["Stock Actuel"], errors="coerce").fillna(0).astype(int)
+        df_clean["Stock Min"] = pd.to_numeric(df_clean["Stock Min"], errors="coerce").fillna(0).astype(int)
+        df_clean["Prix Unitaire ($)"] = pd.to_numeric(df_clean["Prix Unitaire ($)"], errors="coerce").fillna(0.0).astype(float)
+    df_clean.to_csv(STOCK_FILE, index=False)
 
 if "stock_df" not in st.session_state:
     st.session_state.stock_df = load_stock()
@@ -1005,99 +1016,108 @@ with tab_spc:
         st.info("Données insuffisantes pour calculer la capabilité SPC.")
 
 # ==========================================
-# ⚡ TAB 7 : GESTION DYNAMIQUE DU STOCK PERSISTANT
+# ⚡ TAB 7 : TABLEAU DE STOCK INTERACTIF & ÉDITABLE (DATA_EDITOR)
 # ==========================================
 with tab_stock:
-    st.subheader("📦 Gestion des Pièces de Rechange (Sauvegarde Permanente)")
-    st.markdown("Ce tableau est vide par défaut. Entrez vos propres pièces de rechange ci-dessous : elles seront automatiquement **enregistrées et conservées** sur votre machine, même après fermeture de l'application.")
+    st.subheader("📦 Gestion du Stock Professionnel & Éditeur Intégré")
+    st.markdown(
+        "Modifiez directement les cellules dans le tableau ci-dessous, ou cliquez sur la ligne du bas pour **ajouter de nouvelles pièces**. Toutes les modifications sont enregistrées automatiquement sur le disque dur."
+    )
 
-    # Formulaire d'insertion de nouvelle pièce
-    with st.expander("➕ Insérer une nouvelle pièce de rechange", expanded=True):
-        with st.form("form_add_stock", clear_on_submit=True):
-            col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
-            next_id = len(st.session_state.stock_df) + 1
-            with col_f1:
-                new_code = st.text_input("Code Pièce", value=f"PR-{next_id:03d}")
-            with col_f2:
-                new_designation = st.text_input("Désignation", placeholder="Ex: Joint de cuve")
-            with col_f3:
-                new_stock_actuel = st.number_input("Stock Actuel", min_value=0, value=10, step=1)
-            with col_f4:
-                new_stock_min = st.number_input("Stock Min (Alerte)", min_value=0, value=5, step=1)
-            with col_f5:
-                new_pu = st.number_input("Prix Unitaire ($)", min_value=0.0, value=50.0, step=5.0)
+    df_editable = st.session_state.stock_df.copy()
 
-            btn_ajouter = st.form_submit_button("💾 Enregistrer la pièce dans la base de données")
+    # Éditeur de données interactif Streamlit
+    edited_df = st.data_editor(
+        df_editable,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "Code": st.column_config.TextColumn(
+                "Code Pièce",
+                help="Identifiant unique de la pièce",
+                required=True,
+                default="PR-001",
+            ),
+            "Désignation": st.column_config.TextColumn(
+                "Désignation",
+                help="Nom de la pièce de rechange",
+                required=True,
+            ),
+            "Stock Actuel": st.column_config.NumberColumn(
+                "Stock Actuel",
+                help="Quantité disponible en magasin",
+                min_value=0,
+                step=1,
+                format="%d",
+                default=0,
+            ),
+            "Stock Min": st.column_config.NumberColumn(
+                "Stock Min (Alerte)",
+                help="Seuil critique de réapprovisionnement",
+                min_value=0,
+                step=1,
+                format="%d",
+                default=0,
+            ),
+            "Prix Unitaire ($)": st.column_config.NumberColumn(
+                "Prix Unitaire ($)",
+                help="Prix par unité",
+                min_value=0.0,
+                step=1.0,
+                format="$ %.2f",
+                default=0.0,
+            ),
+        },
+        key="stock_editor",
+    )
 
-            if btn_ajouter:
-                if new_designation.strip() != "":
-                    new_item = pd.DataFrame([{
-                        "Code": new_code.strip(),
-                        "Désignation": new_designation.strip(),
-                        "Stock Actuel": int(new_stock_actuel),
-                        "Stock Min": int(new_stock_min),
-                        "Prix Unitaire ($)": float(new_pu),
-                    }])
-                    
-                    st.session_state.stock_df = pd.concat([st.session_state.stock_df, new_item], ignore_index=True)
-                    save_stock(st.session_state.stock_df)
-                    st.success(f"✅ Pièce '{new_designation}' enregistrée et sauvegardée définitivement !")
-                    st.rerun()
-                else:
-                    st.error("⚠️ Veuillez saisir une désignation valide.")
+    # Détection automatique de modification et sauvegarde sur fichier local CSV
+    if not edited_df.equals(st.session_state.stock_df):
+        st.session_state.stock_df = edited_df
+        save_stock(edited_df)
+        st.toast("💾 Modifications du stock sauvegardées avec succès !", icon="✅")
+        st.rerun()
 
-    current_stock = st.session_state.stock_df.copy()
+    # Indicateurs de stock calculés dynamiquement
+    df_metrics = st.session_state.stock_df.dropna(subset=["Code", "Désignation"]).copy()
+    if not df_metrics.empty:
+        df_metrics["Stock Actuel"] = pd.to_numeric(df_metrics["Stock Actuel"], errors="coerce").fillna(0)
+        df_metrics["Stock Min"] = pd.to_numeric(df_metrics["Stock Min"], errors="coerce").fillna(0)
+        df_metrics["Prix Unitaire ($)"] = pd.to_numeric(df_metrics["Prix Unitaire ($)"], errors="coerce").fillna(0.0)
 
-    if not current_stock.empty:
-        current_stock["Stock Actuel"] = pd.to_numeric(current_stock["Stock Actuel"], errors="coerce").fillna(0)
-        current_stock["Stock Min"] = pd.to_numeric(current_stock["Stock Min"], errors="coerce").fillna(0)
-        current_stock["Prix Unitaire ($)"] = pd.to_numeric(current_stock["Prix Unitaire ($)"], errors="coerce").fillna(0.0)
-
-        current_stock["Statut"] = np.where(
-            current_stock["Stock Actuel"] < current_stock["Stock Min"],
-            "⚠️ Recommander",
-            "✅ Suffisant",
-        )
-        current_stock["Valeur Stock ($)"] = current_stock["Stock Actuel"] * current_stock["Prix Unitaire ($)"]
+        df_metrics["Valeur Total ($)"] = df_metrics["Stock Actuel"] * df_metrics["Prix Unitaire ($)"]
+        alert_items = df_metrics[df_metrics["Stock Actuel"] < df_metrics["Stock Min"]]
 
         st.markdown("---")
+        ms1, ms2, ms3 = st.columns(3)
+        with ms1:
+            st.metric("Valeur Globale du Stock", f"{df_metrics['Valeur Total ($)'].sum():,.2f} $")
+        with ms2:
+            st.metric("Nombre Total d'Articles", len(df_metrics))
+        with ms3:
+            recom_cnt = len(alert_items)
+            st.metric("Alertes Remplacement (Stock < Min)", recom_cnt, delta=f"{recom_cnt} à commander" if recom_cnt > 0 else "Stock Optimal", delta_color="inverse")
 
-        s1, s2, s3 = st.columns(3)
-        with s1:
-            st.metric("Valeur Totale du Stock", f"{current_stock['Valeur Stock ($)'].sum():,.2f} $")
-        with s2:
-            recom_count = len(current_stock[current_stock["Stock Actuel"] < current_stock["Stock Min"]])
-            st.metric("Articles en Alerte (Sous le Min)", recom_count, delta=f"{recom_count} à commander", delta_color="inverse")
-        with s3:
-            st.metric("Total Références enregistrées", len(current_stock))
+        if not alert_items.empty:
+            st.error(f"⚠️ **{len(alert_items)} article(s) sous le niveau minimum :** " + ", ".join(alert_items["Désignation"].tolist()))
 
-        st.markdown("#### 📋 Base de Données Stock Active")
-        st.dataframe(
-            current_stock.style.apply(
-                lambda row: ["background-color: #3b1719; color: #f87171" if row["Statut"] == "⚠️ Recommander" else "" for _ in row],
-                axis=1,
-            ),
-            use_container_width=True,
+    col_down, col_clear = st.columns([3, 1])
+    with col_down:
+        csv_stock = edited_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Exporter la base de stock au format CSV",
+            data=csv_stock,
+            file_name="base_donnees_stock_pieces.csv",
+            mime="text/csv",
         )
-
-        c_exp, c_reset = st.columns([3, 1])
-        with c_exp:
-            csv_stock = current_stock.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="📥 Exporter le stock au format CSV",
-                data=csv_stock,
-                file_name="base_donnees_pieces_rechange.csv",
-                mime="text/csv",
-            )
-        with c_reset:
-            if st.button("🗑️ Vider entièrement la Base de Stock"):
-                st.session_state.stock_df = pd.DataFrame(columns=["Code", "Désignation", "Stock Actuel", "Stock Min", "Prix Unitaire ($)"])
-                if STOCK_FILE.exists():
-                    os.remove(STOCK_FILE)
-                st.success("Toutes les données du stock ont été effacées.")
-                st.rerun()
-    else:
-        st.info("ℹ️ Le tableau de stock est actuellement vide. Utilisez le formulaire ci-dessus pour insérer vos premières pièces.")
+    with col_clear:
+        if st.button("🗑️ Vider le stock"):
+            empty_df = pd.DataFrame(columns=["Code", "Désignation", "Stock Actuel", "Stock Min", "Prix Unitaire ($)"])
+            st.session_state.stock_df = empty_df
+            if STOCK_FILE.exists():
+                os.remove(STOCK_FILE)
+            st.success("Toutes les données du stock ont été supprimées.")
+            st.rerun()
 
 # --- TAB 8 : TABLEAU DE BORD KPI MAINTENANCE ---
 with tab_kpi_maint:

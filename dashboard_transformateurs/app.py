@@ -166,10 +166,8 @@ def afficher_alertes(df_data, tab_prefix="main"):
     if df_data.empty:
         return
 
-    # Derniers relevés par transformateur
     derniers = df_data.sort_values("date").groupby("transfo_id").last().reset_index()
 
-    # Filtres pour chaque type d'alerte
     df_silicagel = derniers[derniers["silicagel(%)"] <= 40]
     df_huile_jaune = derniers[derniers["niveau_huile(°c)"].astype(str).str.lower() == "jaune"]
     df_huile_rouge = derniers[derniers["niveau_huile(°c)"].astype(str).str.lower() == "rouge"]
@@ -429,21 +427,34 @@ with k4:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ==========================================
-# 6. ONGLETS D'ANALYSE
+# 6. ONGLETS D'ANALYSE (9 ONGLETS DONT LES 4 NOUVEAUX)
 # ==========================================
-tab_overview, tab_contingency, tab_evolution, tab_predictions, tab_data = st.tabs(
+(
+    tab_overview,
+    tab_contingency,
+    tab_evolution,
+    tab_predictions,
+    tab_mtbf,
+    tab_spc,
+    tab_stock,
+    tab_kpi_maint,
+    tab_data,
+) = st.tabs(
     [
         "📊 Vue d'ensemble",
         "🧮 Contingence & Croisements",
         "📈 Évolution Temporelle Transfo",
-        "🔮 Prédictions à 1 & 2 Mois (IA)",
+        "🔮 Prédictions IA",
+        "📉 Suivi Pannes (MTBF/MTTR)",
+        "🎯 Suivi SPC (Cp/Cpk)",
+        "📦 Pièces de Rechange",
+        "📊 Dashboard KPI Maintenance",
         "📋 Registre des Données",
     ]
 )
 
 # --- TAB 1 : VUE D'ENSEMBLE ---
 with tab_overview:
-    # 1. CENTRE D'ALERTES PLACÉ ICI (1ère option retenue)
     afficher_alertes(filtered_df, tab_prefix="overview")
 
     nb_total_transfos = filtered_df["transfo_id"].nunique()
@@ -540,9 +551,7 @@ with tab_overview:
 
 # --- TAB 2 : CONTINGENCE & CROISEMENTS ---
 with tab_contingency:
-    st.subheader(
-        "🧮 Tableau de Contingence & Profils Lignes (Aspect Général vs Buchings)"
-    )
+    st.subheader("🧮 Tableau de Contingence & Profils Lignes (Aspect Général vs Buchings)")
     if not filtered_df.empty:
         ct_raw = pd.crosstab(
             filtered_df["aspet _gen"],
@@ -596,9 +605,7 @@ with tab_contingency:
             template="plotly_dark",
             color_discrete_map={"propre": "#10B981", "fuite": "#EF4444"},
         )
-        fig_ct.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
-        )
+        fig_ct.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig_ct, use_container_width=True)
     else:
         st.warning("Aucune donnée correspondant à votre recherche.")
@@ -615,7 +622,6 @@ with tab_evolution:
 
     df_single = df[df["transfo_id"] == transfo_target].sort_values("date")
     
-    # 2. CENTRE D'ALERTES PLACÉ ICI (2ème option retenue)
     afficher_alertes(df_single, tab_prefix="evolution")
 
     if not df_single.empty:
@@ -689,9 +695,7 @@ with tab_evolution:
                 template="plotly_dark",
             )
             fig_buch.update_traces(marker=dict(size=14, symbol="square"))
-            fig_buch.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
-            )
+            fig_buch.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig_buch, use_container_width=True)
 
         with col_ev4:
@@ -705,9 +709,7 @@ with tab_evolution:
                 template="plotly_dark",
             )
             fig_asp.update_traces(marker=dict(size=14, symbol="diamond"))
-            fig_asp.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
-            )
+            fig_asp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig_asp, use_container_width=True)
 
         st.markdown("---")
@@ -726,9 +728,7 @@ with tab_evolution:
                     template="plotly_dark",
                 )
                 fig_buchh.update_traces(marker=dict(size=14, symbol="circle"))
-                fig_buchh.update_layout(
-                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
-                )
+                fig_buchh.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(fig_buchh, use_container_width=True)
             else:
                 st.info("Colonne 'relais_buchh' non trouvée dans le dataset.")
@@ -746,9 +746,7 @@ with tab_evolution:
                 template="plotly_dark",
             )
             fig_oil_ev.update_traces(marker=dict(size=14))
-            fig_oil_ev.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
-            )
+            fig_oil_ev.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig_oil_ev, use_container_width=True)
 
     else:
@@ -757,9 +755,7 @@ with tab_evolution:
 # --- TAB 4 : PRÉDICTIONS RÉELLES (IA) ---
 with tab_predictions:
     st.subheader("🔮 Prévision des Risques de Fuite des Buchings (M+1 & M+2)")
-    st.markdown(
-        "Prévisions réalisées par modèle prédictif sur l'état futur des traversées."
-    )
+    st.markdown("Prévisions réalisées par modèle prédictif sur l'état futur des traversées.")
 
     X_features = [
         "puissance(kva)",
@@ -846,16 +842,293 @@ with tab_predictions:
             template="plotly_dark",
             color_discrete_sequence=["#F59E0B", "#EF4444"],
         )
-        fig_prev.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            xaxis_tickangle=-45,
-        )
+        fig_prev.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis_tickangle=-45)
         st.plotly_chart(fig_prev, use_container_width=True)
     else:
         st.info("Aucune donnée pour la prédiction.")
 
-# --- TAB 5 : REGISTRE DE DONNÉES ---
+# ==========================================
+# ⚡ OPTION 1 : TAB 5 - SUIVI DES PANNES (MTBF / MTTR)
+# ==========================================
+with tab_mtbf:
+    st.subheader("📉 Indicateurs de Fiabilité : MTBF & MTTR par Transformateur")
+    st.markdown(
+        "Calculs basés sur le temps moyen de bon fonctionnement entre défaillances (**MTBF**) et le temps moyen de réparation (**MTTR**)."
+    )
+
+    mtbf_data = []
+    for transfo_id, group in filtered_df.groupby("transfo_id"):
+        group = group.sort_values("date")
+        anomalies = group[group["critique"] == True]
+        nb_pannes = len(anomalies)
+
+        total_days = (
+            (group["date"].max() - group["date"].min()).days
+            if len(group) > 1
+            else 30
+        )
+        total_hours = max(total_days * 24, 720)
+
+        # Estimation standard du temps de réparation par intervention
+        downtime_hours = nb_pannes * 8  # 8h estimées par réparation
+        operating_hours = max(total_hours - downtime_hours, 1)
+
+        mtbf = (
+            round(operating_hours / nb_pannes, 1)
+            if nb_pannes > 0
+            else operating_hours
+        )
+        mttr = round(downtime_hours / nb_pannes, 1) if nb_pannes > 0 else 0
+        disponibilite = round((operating_hours / total_hours) * 100, 2)
+
+        mtbf_data.append(
+            {
+                "Transformateur": transfo_id,
+                "Nombre de Pannes / Alertes": nb_pannes,
+                "Heures Fonct. Total (h)": operating_hours,
+                "Temps d'Arrêt Total (h)": downtime_hours,
+                "MTBF (h)": mtbf,
+                "MTTR (h)": mttr,
+                "Disponibilité (%)": disponibilite,
+            }
+        )
+
+    df_mtbf = pd.DataFrame(mtbf_data).sort_values("Disponibilité (%)")
+
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        st.metric("MTBF Moyen Parc", f"{round(df_mtbf['MTBF (h)'].mean(), 1)} h")
+    with m2:
+        st.metric("MTTR Moyen Parc", f"{round(df_mtbf['MTTR (h)'].mean(), 1)} h")
+    with m3:
+        st.metric(
+            "Taux de Disponibilité Moyen",
+            f"{round(df_mtbf['Disponibilité (%)'].mean(), 1)} %",
+        )
+
+    st.markdown("---")
+    st.markdown("#### 📋 Synthèse Fiabilité par Équipement")
+    st.dataframe(df_mtbf, use_container_width=True)
+
+    fig_mtbf = px.bar(
+        df_mtbf,
+        x="Transformateur",
+        y=["MTBF (h)", "MTTR (h)"],
+        barmode="group",
+        title="Comparatif MTBF vs MTTR par Transformateur (Heures)",
+        template="plotly_dark",
+        color_discrete_sequence=["#10B981", "#EF4444"],
+    )
+    fig_mtbf.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis_tickangle=-45)
+    st.plotly_chart(fig_mtbf, use_container_width=True)
+
+# ==========================================
+# ⚡ OPTION 2 : TAB 6 - SUIVI SPC (INDICES Cp / Cpk)
+# ==========================================
+with tab_spc:
+    st.subheader("🎯 Maîtrise Statistique des Procédés (SPC / MSP)")
+    st.markdown(
+        "Évaluation de la capabilité du procédé d'exploitation des transformateurs ($C_p$ et $C_{pk}$)."
+    )
+
+    metric_spc = st.radio(
+        "Sélectionner le paramètre physique à contrôler :",
+        ["Température Huile (°C)", "Taux de Silicagel (%)"],
+        horizontal=True,
+    )
+
+    if metric_spc == "Température Huile (°C)":
+        data_spc = filtered_df["temp_huile(°c)"].dropna()
+        usl, lsl = 50.0, 20.0  # Spécifications limite sup/inf
+    else:
+        data_spc = filtered_df["silicagel(%)"].dropna()
+        usl, lsl = 100.0, 40.0
+
+    if len(data_spc) > 5:
+        mean_val = data_spc.mean()
+        std_val = data_spc.std()
+
+        cp = (usl - lsl) / (6 * std_val) if std_val > 0 else 0
+        cpu = (usl - mean_val) / (3 * std_val) if std_val > 0 else 0
+        cpl = (mean_val - lsl) / (3 * std_val) if std_val > 0 else 0
+        cpk = min(cpu, cpl)
+
+        ucl = mean_val + 3 * std_val
+        lcl = max(0, mean_val - 3 * std_val)
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("Moyenne (μ)", f"{mean_val:.2f}")
+        with c2:
+            st.metric("Écart-Type (σ)", f"{std_val:.2f}")
+        with c3:
+            st.metric("Indice Capabilité Cp", f"{cp:.2f}")
+        with c4:
+            st.metric(
+                "Indice Capabilité Cpk",
+                f"{cpk:.2f}",
+                delta="Conforme" if cpk >= 1.33 else "Incapable/Resserrer",
+            )
+
+        st.markdown("---")
+        st.markdown("#### 📈 Carte de Contrôle X-bar (Limites Statistiques UCL / LCL)")
+
+        fig_spc = go.Figure()
+        fig_spc.add_trace(
+            go.Scatter(
+                y=data_spc.values,
+                mode="lines+markers",
+                name="Valeur Relevée",
+                line=dict(color="#3B82F6"),
+            )
+        )
+        fig_spc.add_hline(
+            y=mean_val,
+            line_color="#10B981",
+            annotation_text=f"Moyenne ({mean_val:.1f})",
+        )
+        fig_spc.add_hline(
+            y=ucl,
+            line_dash="dash",
+            line_color="#EF4444",
+            annotation_text=f"UCL (+3σ = {ucl:.1f})",
+        )
+        fig_spc.add_hline(
+            y=lcl,
+            line_dash="dash",
+            line_color="#F59E0B",
+            annotation_text=f"LCL (-3σ = {lcl:.1f})",
+        )
+        fig_spc.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig_spc, use_container_width=True)
+    else:
+        st.info("Données insuffisantes pour calculer la capabilité SPC.")
+
+# ==========================================
+# ⚡ OPTION 3 : TAB 7 - GESTION DES PIÈCES DE RECHANGE
+# ==========================================
+with tab_stock:
+    st.subheader("📦 Gestion des Stocks de Pièces de Rechange (GMAO)")
+    st.markdown(
+        "Suivi dynamique du magasin de pièces de rechange pour transformateurs MT."
+    )
+
+    # Simulation d'état de stock dynamique
+    stock_initial = [
+        {"Code": "PR-001", "Désignation": "Gel de Silice (Kg)", "Stock Actuel": 45, "Stock Min": 50, "Prix Unitaire ($)": 15},
+        {"Code": "PR-002", "Désignation": "Joint Traversée Buchings", "Stock Actuel": 12, "Stock Min": 10, "Prix Unitaire ($)": 85},
+        {"Code": "PR-003", "Désignation": "Huile Minérale Isolante (L)", "Stock Actuel": 200, "Stock Min": 300, "Prix Unitaire ($)": 6},
+        {"Code": "PR-004", "Désignation": "Relais Buchholz Flotteur", "Stock Actuel": 3, "Stock Min": 5, "Prix Unitaire ($)": 450},
+        {"Code": "PR-005", "Désignation": "Indicateur Niveau Huile", "Stock Actuel": 8, "Stock Min": 4, "Prix Unitaire ($)": 120},
+    ]
+
+    df_stock = pd.DataFrame(stock_initial)
+    df_stock["Statut"] = np.where(
+        df_stock["Stock Actuel"] < df_stock["Stock Min"],
+        "⚠️ Recommander",
+        "✅ Suffisant",
+    )
+    df_stock["Valeur Stock ($)"] = df_stock["Stock Actuel"] * df_stock["Prix Unitaire ($)"]
+
+    s1, s2, s3 = st.columns(3)
+    with s1:
+        st.metric("Valeur Totale du Stock", f"{df_stock['Valeur Stock ($)'].sum():,} $")
+    with s2:
+        st.metric("Articles sous le Seuil Min.", len(df_stock[df_stock["Stock Actuel"] < df_stock["Stock Min"]]))
+    with s3:
+        st.metric("Nombre de Références", len(df_stock))
+
+    st.markdown("---")
+    st.markdown("#### 📋 État des Pièces de Rechange")
+    st.dataframe(df_stock, use_container_width=True)
+
+    csv_stock = df_stock.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📥 Exporter l'état des stocks (CSV)",
+        data=csv_stock,
+        file_name="gestion_stock_pieces_rechange.csv",
+        mime="text/csv",
+    )
+
+# ==========================================
+# ⚡ OPTION 4 : TAB 8 - TABLEAU DE BORD KPI MAINTENANCE
+# ==========================================
+with tab_kpi_maint:
+    st.subheader("📊 Tableau de Bord Stratégique KPI Maintenance")
+    st.markdown(
+        "Vision synthétique des performances globales du service de maintenance."
+    )
+
+    nb_transfo_total = filtered_df["transfo_id"].nunique()
+    total_releves = len(filtered_df)
+    anomalies_totales = len(filtered_df[filtered_df["critique"] == True])
+
+    taux_dispo_parc = round(
+        ((nb_transfo_total - filtered_df[filtered_df["critique"] == True]["transfo_id"].nunique()) / max(1, nb_transfo_total)) * 100, 1
+    )
+    taux_preventif = round(
+        ((total_releves - anomalies_totales) / max(1, total_releves)) * 100, 1
+    )
+    cout_defaillance_est = anomalies_totales * 450  # Coût moyen estimé par alerte/panne ($)
+
+    kp1, kp2, kp3, kp4 = st.columns(4)
+    with kp1:
+        st.metric("Disponibilité Opérationnelle", f"{taux_dispo_parc} %")
+    with kp2:
+        st.metric("Taux de Maintenance Préventive", f"{taux_preventif} %")
+    with kp3:
+        st.metric("Coût Estimé des Défaillances", f"{cout_defaillance_est:,} $")
+    with kp4:
+        st.metric("TRS / OEE Estimé Parc", f"{round(taux_dispo_parc * 0.92, 1)} %")
+
+    st.markdown("---")
+
+    col_kpi1, col_kpi2 = st.columns(2)
+    with col_kpi1:
+        st.markdown("#### 🔄 Ratio Maintenance Préventive vs Curative")
+        df_maint_ratio = pd.DataFrame(
+            {
+                "Type Maintenance": ["Préventive (Conforme)", "Curative (Alertes)"],
+                "Volume": [total_releves - anomalies_totales, anomalies_totales],
+            }
+        )
+        fig_pie_maint = px.pie(
+            df_maint_ratio,
+            names="Type Maintenance",
+            values="Volume",
+            hole=0.4,
+            template="plotly_dark",
+            color_discrete_sequence=["#10B981", "#EF4444"],
+        )
+        fig_pie_maint.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+        st.plotly_chart(fig_pie_maint, use_container_width=True)
+
+    with col_kpi2:
+        st.markdown("#### 🚨 Répartition Mensuelle des Incidents")
+        filtered_df["Mois"] = filtered_df["date"].dt.to_period("M").astype(str)
+        df_incidents_mois = (
+            filtered_df[filtered_df["critique"] == True]
+            .groupby("Mois")
+            .size()
+            .reset_index(name="Nombre Incidents")
+        )
+
+        fig_bar_inc = px.bar(
+            df_incidents_mois,
+            x="Mois",
+            y="Nombre Incidents",
+            title="Évolution Mensuelle des Incidents Détectés",
+            template="plotly_dark",
+            color_discrete_sequence=["#F59E0B"],
+        )
+        fig_bar_inc.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+        st.plotly_chart(fig_bar_inc, use_container_width=True)
+
+# --- TAB 9 : REGISTRE DE DONNÉES ---
 with tab_data:
     st.subheader("📋 Vue Intégrale des Inspections (Filtrée)")
     st.dataframe(filtered_df, use_container_width=True)

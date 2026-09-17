@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import warnings
 import numpy as np
@@ -67,16 +68,25 @@ st.markdown(
 )
 
 # ==========================================
-# INITIALISATION DE LA SESSION DE STOCK
+# GESTION DU STOCK AVEC PERSISTANCE CSV
 # ==========================================
-if "stock_data" not in st.session_state:
-    st.session_state.stock_data = [
-        {"Code": "PR-001", "Désignation": "Gel de Silice (Kg)", "Stock Actuel": 45, "Stock Min": 50, "Prix Unitaire ($)": 15},
-        {"Code": "PR-002", "Désignation": "Joint Traversée Buchings", "Stock Actuel": 12, "Stock Min": 10, "Prix Unitaire ($)": 85},
-        {"Code": "PR-003", "Désignation": "Huile Minérale Isolante (L)", "Stock Actuel": 200, "Stock Min": 300, "Prix Unitaire ($)": 6},
-        {"Code": "PR-004", "Désignation": "Relais Buchholz Flotteur", "Stock Actuel": 3, "Stock Min": 5, "Prix Unitaire ($)": 450},
-        {"Code": "PR-005", "Désignation": "Indicateur Niveau Huile", "Stock Actuel": 8, "Stock Min": 4, "Prix Unitaire ($)": 120},
-    ]
+STOCK_FILE = Path(__file__).resolve().parent / "stock_database.csv"
+
+def load_stock():
+    """Charge le stock depuis le fichier CSV ou retourne un DataFrame vide avec les colonnes de base."""
+    if STOCK_FILE.exists():
+        try:
+            return pd.read_csv(STOCK_FILE)
+        except Exception:
+            pass
+    return pd.DataFrame(columns=["Code", "Désignation", "Stock Actuel", "Stock Min", "Prix Unitaire ($)"])
+
+def save_stock(df_to_save):
+    """Enregistre le DataFrame de stock sur le disque dur dans le fichier CSV."""
+    df_to_save.to_csv(STOCK_FILE, index=False)
+
+if "stock_df" not in st.session_state:
+    st.session_state.stock_df = load_stock()
 
 # ==========================================
 # 2. FONCTIONS DE CHARGEMENT & PRÉPARATION
@@ -995,18 +1005,19 @@ with tab_spc:
         st.info("Données insuffisantes pour calculer la capabilité SPC.")
 
 # ==========================================
-# ⚡ TAB 7 : GESTION DYNAMIQUE DES PIÈCES DE RECHANGE
+# ⚡ TAB 7 : GESTION DYNAMIQUE DU STOCK PERSISTANT
 # ==========================================
 with tab_stock:
-    st.subheader("📦 Gestion Dynamique & Interactive des Pièces de Rechange")
-    st.markdown("Saisissez directement vos nouvelles pièces ci-dessous : l'application effectue l'analyse, déclenche les alertes et enregistre les données.")
+    st.subheader("📦 Gestion des Pièces de Rechange (Sauvegarde Permanente)")
+    st.markdown("Ce tableau est vide par défaut. Entrez vos propres pièces de rechange ci-dessous : elles seront automatiquement **enregistrées et conservées** sur votre machine, même après fermeture de l'application.")
 
     # Formulaire d'insertion de nouvelle pièce
     with st.expander("➕ Insérer une nouvelle pièce de rechange", expanded=True):
         with st.form("form_add_stock", clear_on_submit=True):
             col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
+            next_id = len(st.session_state.stock_df) + 1
             with col_f1:
-                new_code = st.text_input("Code Pièce", value=f"PR-00{len(st.session_state.stock_data)+1}")
+                new_code = st.text_input("Code Pièce", value=f"PR-{next_id:03d}")
             with col_f2:
                 new_designation = st.text_input("Désignation", placeholder="Ex: Joint de cuve")
             with col_f3:
@@ -1016,74 +1027,77 @@ with tab_stock:
             with col_f5:
                 new_pu = st.number_input("Prix Unitaire ($)", min_value=0.0, value=50.0, step=5.0)
 
-            btn_ajouter = st.form_submit_button("💾 Enregistrer la pièce dans le stock")
+            btn_ajouter = st.form_submit_button("💾 Enregistrer la pièce dans la base de données")
 
             if btn_ajouter:
                 if new_designation.strip() != "":
-                    new_item = {
+                    new_item = pd.DataFrame([{
                         "Code": new_code.strip(),
                         "Désignation": new_designation.strip(),
                         "Stock Actuel": int(new_stock_actuel),
                         "Stock Min": int(new_stock_min),
                         "Prix Unitaire ($)": float(new_pu),
-                    }
-                    st.session_state.stock_data.append(new_item)
-                    st.success(f"✅ Pièce '{new_designation}' ajoutée avec succès !")
+                    }])
+                    
+                    st.session_state.stock_df = pd.concat([st.session_state.stock_df, new_item], ignore_index=True)
+                    save_stock(st.session_state.stock_df)
+                    st.success(f"✅ Pièce '{new_designation}' enregistrée et sauvegardée définitivement !")
+                    st.rerun()
                 else:
                     st.error("⚠️ Veuillez saisir une désignation valide.")
 
-    # Transformation des données en DataFrame et calculs automatiques
-    df_stock = pd.DataFrame(st.session_state.stock_data)
+    current_stock = st.session_state.stock_df.copy()
 
-    df_stock["Statut"] = np.where(
-        df_stock["Stock Actuel"] < df_stock["Stock Min"],
-        "⚠️ Recommander",
-        "✅ Suffisant",
-    )
-    df_stock["Valeur Stock ($)"] = df_stock["Stock Actuel"] * df_stock["Prix Unitaire ($)"]
+    if not current_stock.empty:
+        current_stock["Stock Actuel"] = pd.to_numeric(current_stock["Stock Actuel"], errors="coerce").fillna(0)
+        current_stock["Stock Min"] = pd.to_numeric(current_stock["Stock Min"], errors="coerce").fillna(0)
+        current_stock["Prix Unitaire ($)"] = pd.to_numeric(current_stock["Prix Unitaire ($)"], errors="coerce").fillna(0.0)
 
-    st.markdown("---")
-
-    # Metrics
-    s1, s2, s3 = st.columns(3)
-    with s1:
-        st.metric("Valeur Totale du Stock", f"{df_stock['Valeur Stock ($)'].sum():,.2f} $")
-    with s2:
-        recom_count = len(df_stock[df_stock["Stock Actuel"] < df_stock["Stock Min"]])
-        st.metric("Articles en Alerte (Sous le Min)", recom_count, delta=f"{recom_count} à commander", delta_color="inverse")
-    with s3:
-        st.metric("Total Références en Stock", len(df_stock))
-
-    st.markdown("#### 📋 Etat du Stock mis à jour")
-    
-    # Mise en forme visuelle des lignes selon alerte
-    st.dataframe(
-        df_stock.style.apply(
-            lambda row: ["background-color: #3b1719; color: #f87171" if row["Statut"] == "⚠️ Recommander" else "" for _ in row],
-            axis=1,
-        ),
-        use_container_width=True,
-    )
-
-    c_exp, c_reset = st.columns([3, 1])
-    with c_exp:
-        csv_stock = df_stock.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="📥 Exporter le stock à jour (CSV)",
-            data=csv_stock,
-            file_name="gestion_stock_pieces_rechange.csv",
-            mime="text/csv",
+        current_stock["Statut"] = np.where(
+            current_stock["Stock Actuel"] < current_stock["Stock Min"],
+            "⚠️ Recommander",
+            "✅ Suffisant",
         )
-    with c_reset:
-        if st.button("🔄 Réinitialiser le Stock par Défaut"):
-            st.session_state.stock_data = [
-                {"Code": "PR-001", "Désignation": "Gel de Silice (Kg)", "Stock Actuel": 45, "Stock Min": 50, "Prix Unitaire ($)": 15},
-                {"Code": "PR-002", "Désignation": "Joint Traversée Buchings", "Stock Actuel": 12, "Stock Min": 10, "Prix Unitaire ($)": 85},
-                {"Code": "PR-003", "Désignation": "Huile Minérale Isolante (L)", "Stock Actuel": 200, "Stock Min": 300, "Prix Unitaire ($)": 6},
-                {"Code": "PR-004", "Désignation": "Relais Buchholz Flotteur", "Stock Actuel": 3, "Stock Min": 5, "Prix Unitaire ($)": 450},
-                {"Code": "PR-005", "Désignation": "Indicateur Niveau Huile", "Stock Actuel": 8, "Stock Min": 4, "Prix Unitaire ($)": 120},
-            ]
-            st.rerun()
+        current_stock["Valeur Stock ($)"] = current_stock["Stock Actuel"] * current_stock["Prix Unitaire ($)"]
+
+        st.markdown("---")
+
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            st.metric("Valeur Totale du Stock", f"{current_stock['Valeur Stock ($)'].sum():,.2f} $")
+        with s2:
+            recom_count = len(current_stock[current_stock["Stock Actuel"] < current_stock["Stock Min"]])
+            st.metric("Articles en Alerte (Sous le Min)", recom_count, delta=f"{recom_count} à commander", delta_color="inverse")
+        with s3:
+            st.metric("Total Références enregistrées", len(current_stock))
+
+        st.markdown("#### 📋 Base de Données Stock Active")
+        st.dataframe(
+            current_stock.style.apply(
+                lambda row: ["background-color: #3b1719; color: #f87171" if row["Statut"] == "⚠️ Recommander" else "" for _ in row],
+                axis=1,
+            ),
+            use_container_width=True,
+        )
+
+        c_exp, c_reset = st.columns([3, 1])
+        with c_exp:
+            csv_stock = current_stock.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📥 Exporter le stock au format CSV",
+                data=csv_stock,
+                file_name="base_donnees_pieces_rechange.csv",
+                mime="text/csv",
+            )
+        with c_reset:
+            if st.button("🗑️ Vider entièrement la Base de Stock"):
+                st.session_state.stock_df = pd.DataFrame(columns=["Code", "Désignation", "Stock Actuel", "Stock Min", "Prix Unitaire ($)"])
+                if STOCK_FILE.exists():
+                    os.remove(STOCK_FILE)
+                st.success("Toutes les données du stock ont été effacées.")
+                st.rerun()
+    else:
+        st.info("ℹ️ Le tableau de stock est actuellement vide. Utilisez le formulaire ci-dessus pour insérer vos premières pièces.")
 
 # --- TAB 8 : TABLEAU DE BORD KPI MAINTENANCE ---
 with tab_kpi_maint:

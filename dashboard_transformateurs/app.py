@@ -67,6 +67,18 @@ st.markdown(
 )
 
 # ==========================================
+# INITIALISATION DE LA SESSION DE STOCK
+# ==========================================
+if "stock_data" not in st.session_state:
+    st.session_state.stock_data = [
+        {"Code": "PR-001", "Désignation": "Gel de Silice (Kg)", "Stock Actuel": 45, "Stock Min": 50, "Prix Unitaire ($)": 15},
+        {"Code": "PR-002", "Désignation": "Joint Traversée Buchings", "Stock Actuel": 12, "Stock Min": 10, "Prix Unitaire ($)": 85},
+        {"Code": "PR-003", "Désignation": "Huile Minérale Isolante (L)", "Stock Actuel": 200, "Stock Min": 300, "Prix Unitaire ($)": 6},
+        {"Code": "PR-004", "Désignation": "Relais Buchholz Flotteur", "Stock Actuel": 3, "Stock Min": 5, "Prix Unitaire ($)": 450},
+        {"Code": "PR-005", "Désignation": "Indicateur Niveau Huile", "Stock Actuel": 8, "Stock Min": 4, "Prix Unitaire ($)": 120},
+    ]
+
+# ==========================================
 # 2. FONCTIONS DE CHARGEMENT & PRÉPARATION
 # ==========================================
 BASE_DIR = Path(__file__).resolve().parent
@@ -185,7 +197,6 @@ def afficher_alertes(df_data, tab_prefix="main"):
         cols_export = ["transfo_id", "date", "silicagel(%)", "niveau_huile(°c)", "buchings", "temp_huile(°c)"]
         cols_export_exist = [c for c in cols_export if c in derniers.columns]
 
-        # --- ALERTE SILICAGEL ---
         if not df_silicagel.empty:
             st.error(f"⚠️ **Alerte Silicagel (≤ 40%) - {len(df_silicagel)} transformateur(s) à remplacer**")
             c1, c2 = st.columns([3, 1])
@@ -205,7 +216,6 @@ def afficher_alertes(df_data, tab_prefix="main"):
                     key=f"btn_sil_{tab_prefix}"
                 )
 
-        # --- ALERTE HUILE JAUNE ---
         if not df_huile_jaune.empty:
             st.warning(f"🟡 **Alerte Niveau d'Huile (Jaune) - {len(df_huile_jaune)} transformateur(s) : Programmer l'appoint d'huile**")
             c1, c2 = st.columns([3, 1])
@@ -225,7 +235,6 @@ def afficher_alertes(df_data, tab_prefix="main"):
                     key=f"btn_hj_{tab_prefix}"
                 )
 
-        # --- ALERTE HUILE ROUGE ---
         if not df_huile_rouge.empty:
             st.error(f"🔴 **Alerte Niveau d'Huile (Rouge) - {len(df_huile_rouge)} transformateur(s) : Appoint d'huile Nécessaire**")
             c1, c2 = st.columns([3, 1])
@@ -245,7 +254,6 @@ def afficher_alertes(df_data, tab_prefix="main"):
                     key=f"btn_hr_{tab_prefix}"
                 )
 
-        # --- ALERTE FUITES ---
         if not df_fuites.empty:
             st.error(f"💧 **Alerte Fuite Décelée - {len(df_fuites)} transformateur(s) à traiter (éliminer les fuites)**")
             c1, c2 = st.columns([3, 1])
@@ -315,7 +323,7 @@ with col_search_box:
             max_value=max_date,
         )
 
-# Application des filtres de sélection
+# Application des filtres
 filtered_df = df.copy()
 
 if len(date_range) == 2:
@@ -334,41 +342,24 @@ if selected_transfo != "Tous les équipements":
     st.markdown(f"### 📋 Rapport Synthétique d'Aspects & Variations : **{selected_transfo}**")
 
     disp_cols = [
-        "date",
-        "transfo_id",
-        "aspet _gen",
-        "var_aspet_gen",
-        "silicagel(%)",
-        "var_silicagel(%)",
-        "buchings",
-        "var_buchings",
-        "niveau_huile(°c)",
-        "var_niveau_huile",
-        "temp_huile(°c)",
-        "var_temp_huile(°c)",
+        "date", "transfo_id", "aspet _gen", "var_aspet_gen",
+        "silicagel(%)", "var_silicagel(%)", "buchings", "var_buchings",
+        "niveau_huile(°c)", "var_niveau_huile", "temp_huile(°c)", "var_temp_huile(°c)",
     ]
 
     df_display = filtered_df[disp_cols].rename(
         columns={
-            "date": "Date Inspection",
-            "transfo_id": "Transformateur",
-            "aspet _gen": "Aspect Général",
-            "var_aspet_gen": "Var. Aspect Général",
-            "silicagel(%)": "Silicagel (%)",
-            "var_silicagel(%)": "Δ Silicagel (%)",
-            "buchings": "Buchings",
-            "var_buchings": "Var. Buchings",
-            "niveau_huile(°c)": "Niveau Huile",
-            "var_niveau_huile": "Var. Niveau Huile",
-            "temp_huile(°c)": "Temp Huile (°C)",
-            "var_temp_huile(°c)": "Δ Temp (°C)",
+            "date": "Date Inspection", "transfo_id": "Transformateur",
+            "aspet _gen": "Aspect Général", "var_aspet_gen": "Var. Aspect Général",
+            "silicagel(%)": "Silicagel (%)", "var_silicagel(%)": "Δ Silicagel (%)",
+            "buchings": "Buchings", "var_buchings": "Var. Buchings",
+            "niveau_huile(°c)": "Niveau Huile", "var_niveau_huile": "Var. Niveau Huile",
+            "temp_huile(°c)": "Temp Huile (°C)", "var_temp_huile(°c)": "Δ Temp (°C)",
         }
     )
 
     st.dataframe(
-        df_display.style.format(
-            {"Δ Silicagel (%)": "{:+.1f}", "Δ Temp (°C)": "{:+.1f}"}
-        ),
+        df_display.style.format({"Δ Silicagel (%)": "{:+.1f}", "Δ Temp (°C)": "{:+.1f}"}),
         use_container_width=True,
     )
 
@@ -427,7 +418,7 @@ with k4:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ==========================================
-# 6. ONGLETS D'ANALYSE (9 ONGLETS DONT LES 4 NOUVEAUX)
+# 6. ONGLETS D'ANALYSE
 # ==========================================
 (
     tab_overview,
@@ -847,9 +838,7 @@ with tab_predictions:
     else:
         st.info("Aucune donnée pour la prédiction.")
 
-# ==========================================
-# ⚡ OPTION 1 : TAB 5 - SUIVI DES PANNES (MTBF / MTTR)
-# ==========================================
+# --- TAB 5 : SUIVI DES PANNES (MTBF / MTTR) ---
 with tab_mtbf:
     st.subheader("📉 Indicateurs de Fiabilité : MTBF & MTTR par Transformateur")
     st.markdown(
@@ -869,8 +858,7 @@ with tab_mtbf:
         )
         total_hours = max(total_days * 24, 720)
 
-        # Estimation standard du temps de réparation par intervention
-        downtime_hours = nb_pannes * 8  # 8h estimées par réparation
+        downtime_hours = nb_pannes * 8
         operating_hours = max(total_hours - downtime_hours, 1)
 
         mtbf = (
@@ -922,9 +910,7 @@ with tab_mtbf:
     fig_mtbf.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis_tickangle=-45)
     st.plotly_chart(fig_mtbf, use_container_width=True)
 
-# ==========================================
-# ⚡ OPTION 2 : TAB 6 - SUIVI SPC (INDICES Cp / Cpk)
-# ==========================================
+# --- TAB 6 : SUIVI SPC (INDICES Cp / Cpk) ---
 with tab_spc:
     st.subheader("🎯 Maîtrise Statistique des Procédés (SPC / MSP)")
     st.markdown(
@@ -939,7 +925,7 @@ with tab_spc:
 
     if metric_spc == "Température Huile (°C)":
         data_spc = filtered_df["temp_huile(°c)"].dropna()
-        usl, lsl = 50.0, 20.0  # Spécifications limite sup/inf
+        usl, lsl = 50.0, 20.0
     else:
         data_spc = filtered_df["silicagel(%)"].dropna()
         usl, lsl = 100.0, 40.0
@@ -1009,24 +995,46 @@ with tab_spc:
         st.info("Données insuffisantes pour calculer la capabilité SPC.")
 
 # ==========================================
-# ⚡ OPTION 3 : TAB 7 - GESTION DES PIÈCES DE RECHANGE
+# ⚡ TAB 7 : GESTION DYNAMIQUE DES PIÈCES DE RECHANGE
 # ==========================================
 with tab_stock:
-    st.subheader("📦 Gestion des Stocks de Pièces de Rechange (GMAO)")
-    st.markdown(
-        "Suivi dynamique du magasin de pièces de rechange pour transformateurs MT."
-    )
+    st.subheader("📦 Gestion Dynamique & Interactive des Pièces de Rechange")
+    st.markdown("Saisissez directement vos nouvelles pièces ci-dessous : l'application effectue l'analyse, déclenche les alertes et enregistre les données.")
 
-    # Simulation d'état de stock dynamique
-    stock_initial = [
-        {"Code": "PR-001", "Désignation": "Gel de Silice (Kg)", "Stock Actuel": 45, "Stock Min": 50, "Prix Unitaire ($)": 15},
-        {"Code": "PR-002", "Désignation": "Joint Traversée Buchings", "Stock Actuel": 12, "Stock Min": 10, "Prix Unitaire ($)": 85},
-        {"Code": "PR-003", "Désignation": "Huile Minérale Isolante (L)", "Stock Actuel": 200, "Stock Min": 300, "Prix Unitaire ($)": 6},
-        {"Code": "PR-004", "Désignation": "Relais Buchholz Flotteur", "Stock Actuel": 3, "Stock Min": 5, "Prix Unitaire ($)": 450},
-        {"Code": "PR-005", "Désignation": "Indicateur Niveau Huile", "Stock Actuel": 8, "Stock Min": 4, "Prix Unitaire ($)": 120},
-    ]
+    # Formulaire d'insertion de nouvelle pièce
+    with st.expander("➕ Insérer une nouvelle pièce de rechange", expanded=True):
+        with st.form("form_add_stock", clear_on_submit=True):
+            col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
+            with col_f1:
+                new_code = st.text_input("Code Pièce", value=f"PR-00{len(st.session_state.stock_data)+1}")
+            with col_f2:
+                new_designation = st.text_input("Désignation", placeholder="Ex: Joint de cuve")
+            with col_f3:
+                new_stock_actuel = st.number_input("Stock Actuel", min_value=0, value=10, step=1)
+            with col_f4:
+                new_stock_min = st.number_input("Stock Min (Alerte)", min_value=0, value=5, step=1)
+            with col_f5:
+                new_pu = st.number_input("Prix Unitaire ($)", min_value=0.0, value=50.0, step=5.0)
 
-    df_stock = pd.DataFrame(stock_initial)
+            btn_ajouter = st.form_submit_button("💾 Enregistrer la pièce dans le stock")
+
+            if btn_ajouter:
+                if new_designation.strip() != "":
+                    new_item = {
+                        "Code": new_code.strip(),
+                        "Désignation": new_designation.strip(),
+                        "Stock Actuel": int(new_stock_actuel),
+                        "Stock Min": int(new_stock_min),
+                        "Prix Unitaire ($)": float(new_pu),
+                    }
+                    st.session_state.stock_data.append(new_item)
+                    st.success(f"✅ Pièce '{new_designation}' ajoutée avec succès !")
+                else:
+                    st.error("⚠️ Veuillez saisir une désignation valide.")
+
+    # Transformation des données en DataFrame et calculs automatiques
+    df_stock = pd.DataFrame(st.session_state.stock_data)
+
     df_stock["Statut"] = np.where(
         df_stock["Stock Actuel"] < df_stock["Stock Min"],
         "⚠️ Recommander",
@@ -1034,29 +1042,50 @@ with tab_stock:
     )
     df_stock["Valeur Stock ($)"] = df_stock["Stock Actuel"] * df_stock["Prix Unitaire ($)"]
 
+    st.markdown("---")
+
+    # Metrics
     s1, s2, s3 = st.columns(3)
     with s1:
-        st.metric("Valeur Totale du Stock", f"{df_stock['Valeur Stock ($)'].sum():,} $")
+        st.metric("Valeur Totale du Stock", f"{df_stock['Valeur Stock ($)'].sum():,.2f} $")
     with s2:
-        st.metric("Articles sous le Seuil Min.", len(df_stock[df_stock["Stock Actuel"] < df_stock["Stock Min"]]))
+        recom_count = len(df_stock[df_stock["Stock Actuel"] < df_stock["Stock Min"]])
+        st.metric("Articles en Alerte (Sous le Min)", recom_count, delta=f"{recom_count} à commander", delta_color="inverse")
     with s3:
-        st.metric("Nombre de Références", len(df_stock))
+        st.metric("Total Références en Stock", len(df_stock))
 
-    st.markdown("---")
-    st.markdown("#### 📋 État des Pièces de Rechange")
-    st.dataframe(df_stock, use_container_width=True)
-
-    csv_stock = df_stock.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="📥 Exporter l'état des stocks (CSV)",
-        data=csv_stock,
-        file_name="gestion_stock_pieces_rechange.csv",
-        mime="text/csv",
+    st.markdown("#### 📋 Etat du Stock mis à jour")
+    
+    # Mise en forme visuelle des lignes selon alerte
+    st.dataframe(
+        df_stock.style.apply(
+            lambda row: ["background-color: #3b1719; color: #f87171" if row["Statut"] == "⚠️ Recommander" else "" for _ in row],
+            axis=1,
+        ),
+        use_container_width=True,
     )
 
-# ==========================================
-# ⚡ OPTION 4 : TAB 8 - TABLEAU DE BORD KPI MAINTENANCE
-# ==========================================
+    c_exp, c_reset = st.columns([3, 1])
+    with c_exp:
+        csv_stock = df_stock.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Exporter le stock à jour (CSV)",
+            data=csv_stock,
+            file_name="gestion_stock_pieces_rechange.csv",
+            mime="text/csv",
+        )
+    with c_reset:
+        if st.button("🔄 Réinitialiser le Stock par Défaut"):
+            st.session_state.stock_data = [
+                {"Code": "PR-001", "Désignation": "Gel de Silice (Kg)", "Stock Actuel": 45, "Stock Min": 50, "Prix Unitaire ($)": 15},
+                {"Code": "PR-002", "Désignation": "Joint Traversée Buchings", "Stock Actuel": 12, "Stock Min": 10, "Prix Unitaire ($)": 85},
+                {"Code": "PR-003", "Désignation": "Huile Minérale Isolante (L)", "Stock Actuel": 200, "Stock Min": 300, "Prix Unitaire ($)": 6},
+                {"Code": "PR-004", "Désignation": "Relais Buchholz Flotteur", "Stock Actuel": 3, "Stock Min": 5, "Prix Unitaire ($)": 450},
+                {"Code": "PR-005", "Désignation": "Indicateur Niveau Huile", "Stock Actuel": 8, "Stock Min": 4, "Prix Unitaire ($)": 120},
+            ]
+            st.rerun()
+
+# --- TAB 8 : TABLEAU DE BORD KPI MAINTENANCE ---
 with tab_kpi_maint:
     st.subheader("📊 Tableau de Bord Stratégique KPI Maintenance")
     st.markdown(
@@ -1073,7 +1102,7 @@ with tab_kpi_maint:
     taux_preventif = round(
         ((total_releves - anomalies_totales) / max(1, total_releves)) * 100, 1
     )
-    cout_defaillance_est = anomalies_totales * 450  # Coût moyen estimé par alerte/panne ($)
+    cout_defaillance_est = anomalies_totales * 450
 
     kp1, kp2, kp3, kp4 = st.columns(4)
     with kp1:
